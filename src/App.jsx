@@ -1,4 +1,6 @@
-import { useState } from 'react'
+import { memo, useCallback, useEffect, useState } from 'react'
+import ExerciseItem from './components/ExerciseItem.jsx'
+import { getExerciseBundle } from './services/exercisesApi.js'
 
 const globalPhases = {
 	warmup: {
@@ -101,7 +103,7 @@ const weekSchedule = [
 	{ day: 'Dom', fullDay: 'Domingo', workoutId: 5 },
 ]
 
-function Phase({ phase, open, onToggle, children }) {
+const Phase = memo(function Phase({ phase, open, onToggle, children }) {
 	return (
 		<section className="border-b border-white/10 last:border-b-0">
 			<button
@@ -111,107 +113,216 @@ function Phase({ phase, open, onToggle, children }) {
 				aria-expanded={open}
 			>
 				<span className="flex items-center gap-4">
-					<span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-bold text-red-500">{phase.label.replace('Fase ', '0')}</span>
+					<span className="glass-num flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold text-red-500">{phase.label.replace('Fase ', '0')}</span>
 					<span>
 						<strong className="block text-lg font-bold text-white">{phase.title}</strong>
 						<span className="text-sm text-zinc-400">{phase.detail}</span>
 					</span>
 				</span>
-				<span className={`text-2xl text-red-500 transition-transform ${open ? 'rotate-180' : ''}`}>⌄</span>
+				<span className={`phase-chevron ${open ? 'open' : ''}`} aria-hidden="true">
+					<svg viewBox="0 0 16 16" className="phase-chevron-icon">
+						<path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+					</svg>
+				</span>
 			</button>
-			{open && <div className="phase-content pb-5">{children}</div>}
+			{open && (
+				<div className="phase-collapse open" aria-hidden={false}>
+					<div className="phase-collapse-inner">
+						<div className="phase-content pb-5">{children}</div>
+					</div>
+				</div>
+			)}
 		</section>
 	)
-}
+})
 
-function ThemeToggle({ theme, onToggle }) {
+const ThemeToggle = memo(function ThemeToggle({ theme, onToggle }) {
 	const isLight = theme === 'light'
 
 	return (
 		<button
 			type="button"
-			className="theme-toggle flex min-h-10 items-center gap-2 rounded-xl border border-white/10 px-3 text-xs font-bold uppercase tracking-widest text-zinc-400 transition hover:border-red-500/60 hover:text-red-500"
+			className="theme-toggle glass-pill flex min-h-10 items-center gap-2 rounded-xl px-3 text-xs font-bold uppercase tracking-widest text-zinc-400 transition hover:border-red-500/60 hover:text-red-500"
 			onClick={onToggle}
 			aria-label={isLight ? 'Cambiar a tema oscuro' : 'Cambiar a tema claro'}
 		>
-			<span aria-hidden="true" className="text-base">{isLight ? '☀' : '☾'}</span>
+			<span aria-hidden="true" className="theme-icon text-base">{isLight ? '☀' : '☾'}</span>
 			<span>{isLight ? 'Claro' : 'Oscuro'}</span>
 		</button>
 	)
-}
+})
+
+const BackgroundOrbs = memo(function BackgroundOrbs() {
+	return (
+		<div className="bg-orbs" aria-hidden="true">
+			<span className="orb orb-a" />
+			<span className="orb orb-b" />
+		</div>
+	)
+})
 
 function App() {
 	const [selectedDay, setSelectedDay] = useState(null)
 	const [calendarView, setCalendarView] = useState('list')
 	const [theme, setTheme] = useState('dark')
 	const [openPhase, setOpenPhase] = useState('strength')
-	const selectedWorkout = workoutDays.find((day) => day.id === selectedDay)
+	const [checkedByDay, setCheckedByDay] = useState({})
+	const [expandedKey, setExpandedKey] = useState(null)
+	const [dayComplete, setDayComplete] = useState(false)
 
-	const togglePhase = (phase) => {
+	const selectedWorkout = workoutDays.find((day) => day.id === selectedDay) ?? null
+
+	const checkedList = selectedWorkout ? (checkedByDay[selectedWorkout.id] ?? []) : []
+	const totalExercises = selectedWorkout ? selectedWorkout.exercises.length : 0
+	const doneCount = checkedList.length
+	const progress = totalExercises ? doneCount / totalExercises : 0
+	const allDone = totalExercises > 0 && doneCount === totalExercises
+
+	const togglePhase = useCallback((phase) => {
 		setOpenPhase((current) => (current === phase ? '' : phase))
-	}
+	}, [])
+
+	const toggleTheme = useCallback(() => {
+		setTheme((current) => (current === 'dark' ? 'light' : 'dark'))
+	}, [])
+
+	const toggleCheck = useCallback((workoutId, index) => {
+		setDayComplete(false)
+		setCheckedByDay((prev) => {
+			const current = new Set(prev[workoutId] ?? [])
+			if (current.has(index)) current.delete(index)
+			else current.add(index)
+			return { ...prev, [workoutId]: [...current].sort((a, b) => a - b) }
+		})
+	}, [])
+
+	const resetDay = useCallback((workoutId) => {
+		setCheckedByDay((prev) => ({ ...prev, [workoutId]: [] }))
+		setDayComplete(false)
+		setExpandedKey(null)
+	}, [])
+
+	const toggleExpand = useCallback((key) => {
+		setExpandedKey((cur) => (cur === key ? null : key))
+	}, [])
+
+	const selectDay = useCallback((id) => setSelectedDay(id), [])
+	const goBack = useCallback(() => setSelectedDay(null), [])
+
+	// Al marcar todo: día terminado + auto-reset para no guardar marcas para siempre
+	useEffect(() => {
+		if (!selectedWorkout || !allDone) return
+		setDayComplete(true)
+		const t = setTimeout(() => {
+			resetDay(selectedWorkout.id)
+		}, 4200)
+		return () => clearTimeout(t)
+	}, [allDone, selectedWorkout, resetDay])
+
+	useEffect(() => {
+		setExpandedKey(null)
+		setDayComplete(false)
+	}, [selectedDay])
 
 	if (selectedWorkout) {
 		return (
-			<main className={`screen-enter theme-${theme} mx-auto min-h-screen max-w-lg bg-[#0b0d0c] px-5 pb-10 text-white`}>
-				<header className="flex items-center justify-between py-6">
-					<button type="button" onClick={() => setSelectedDay(null)} className="flex min-h-12 items-center gap-2 text-sm font-bold uppercase tracking-widest text-zinc-400" aria-label="Volver a los días">
+			<main className={`screen-enter theme-${theme} app-shell mx-auto min-h-screen max-w-lg px-5 pb-10 text-white`}>
+				<BackgroundOrbs />
+				<header className="relative z-10 flex items-center justify-between py-6">
+					<button type="button" onClick={goBack} className="back-btn flex min-h-12 items-center gap-2 text-sm font-bold uppercase tracking-widest text-zinc-400" aria-label="Volver a los días">
 						<span className="text-2xl leading-none text-red-500">‹</span> Días
 					</button>
-					<ThemeToggle theme={theme} onToggle={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))} />
+					<ThemeToggle theme={theme} onToggle={toggleTheme} />
 				</header>
-				<div className="mb-8">
+				<div className="relative z-10 mb-6">
 					<p className="mb-2 text-sm font-bold uppercase tracking-[0.2em] text-red-500">Día {selectedWorkout.id} / 5</p>
 					<h1 className="text-4xl font-black tracking-tight">{selectedWorkout.name}</h1>
 					<p className="mt-2 text-lg text-zinc-400">{selectedWorkout.focus}</p>
 				</div>
-				<div className="routine-card overflow-hidden rounded-2xl border border-white/10 bg-[#121613] px-5 shadow-2xl shadow-black/20">
+
+				{/* Progreso glassy */}
+				<div className="glass-card relative z-10 mb-5 rounded-2xl p-4">
+					<div className="mb-2 flex items-center justify-between text-sm">
+						<span className="font-bold uppercase tracking-widest text-zinc-400">Progreso del día</span>
+						<strong className="text-red-500">{doneCount}/{totalExercises}</strong>
+					</div>
+					<div className="progress-track" role="progressbar" aria-valuenow={doneCount} aria-valuemin={0} aria-valuemax={totalExercises} aria-label="Progreso del día">
+						<div className="progress-fill" style={{ width: `${Math.round(progress * 100)}%` }} />
+					</div>
+					<p className="mt-2 text-xs text-zinc-500">
+						{allDone ? '¡Día completado! Reiniciando…' : doneCount === 0 ? 'Marca cada ejercicio al terminarlo' : `${totalExercises - doneCount} por completar`}
+					</p>
+				</div>
+
+				{dayComplete && (
+					<div className="complete-banner glass-card relative z-10 mb-5" role="status">
+						<span className="complete-pop" aria-hidden="true">
+							<svg viewBox="0 0 24 24" className="complete-svg"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" /></svg>
+						</span>
+						<div>
+							<strong>¡Día terminado! 🎉</strong>
+							<p>Todos los checks se reiniciarán solos, sin recargar la página.</p>
+						</div>
+						<button type="button" className="complete-btn" onClick={() => resetDay(selectedWorkout.id)}>Reiniciar ahora</button>
+					</div>
+				)}
+
+				<div className="routine-card glass-card relative z-10 rounded-2xl px-5">
 					<Phase phase={globalPhases.warmup} open={openPhase === 'warmup'} onToggle={() => togglePhase('warmup')}>
-						<div className="rounded-xl bg-white/5 p-4 text-base text-zinc-300">{globalPhases.warmup.notes}</div>
+						<div className="glass-inset rounded-xl p-4 text-base text-zinc-300">{globalPhases.warmup.notes}</div>
 					</Phase>
-					<Phase phase={{ title: 'Fuerza', label: 'Fase 2', detail: `${selectedWorkout.exercises.length} ejercicios` }} open={openPhase === 'strength'} onToggle={() => togglePhase('strength')}>
-						<div className="mb-4 flex items-center justify-between rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm">
+					<Phase phase={{ title: 'Fuerza', label: 'Fase 2', detail: `${selectedWorkout.exercises.length} ejercicios · toca para ver animación` }} open={openPhase === 'strength'} onToggle={() => togglePhase('strength')}>
+						<div className="mb-4 flex items-center justify-between rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm glass-inset">
 							<span className="text-zinc-300">Regla global</span>
 							<strong className="text-red-500">{globalRules.tempo} · {globalRules.rest}</strong>
 						</div>
-						<div className="divide-y divide-white/10">
-							{selectedWorkout.exercises.map(([name, reps, note], index) => (
-								<div key={`${name}-${index}`} className="exercise-row flex items-center justify-between gap-4 py-4 first:pt-0 last:pb-0">
-									<div className="min-w-0">
-										<p className="text-base font-bold text-white">{name}</p>
-										<p className="mt-1 text-sm text-zinc-500">{note}</p>
-									</div>
-									<span className="shrink-0 rounded-lg bg-white/10 px-3 py-2 text-sm font-bold text-red-400">{reps}</span>
-								</div>
-							))}
+						<div className="exercise-list">
+							{selectedWorkout.exercises.map(([name, reps, note], index) => {
+								const key = `${selectedWorkout.id}-${index}`
+								return (
+									<ExerciseItem
+										key={key}
+										name={name}
+										reps={reps}
+										note={note}
+										index={index}
+										checked={checkedList.includes(index)}
+										onToggle={() => toggleCheck(selectedWorkout.id, index)}
+										expanded={expandedKey === key}
+										onExpand={() => toggleExpand(key)}
+										bundle={getExerciseBundle(name)}
+									/>
+								)
+							})}
 						</div>
 					</Phase>
 					<Phase phase={globalPhases.cardio} open={openPhase === 'cardio'} onToggle={() => togglePhase('cardio')}>
-						<div className="rounded-xl bg-white/5 p-4 text-base text-zinc-300">{globalPhases.cardio.notes}</div>
+						<div className="glass-inset rounded-xl p-4 text-base text-zinc-300">{globalPhases.cardio.notes}</div>
 					</Phase>
 				</div>
-				<p className="mt-6 text-center text-xs uppercase tracking-widest text-zinc-600">Escucha tu cuerpo · Mantén el control</p>
+				<p className="relative z-10 mt-6 text-center text-xs uppercase tracking-widest text-zinc-600">Escucha tu cuerpo · Mantén el control</p>
 			</main>
 		)
 	}
 
 	return (
-			<main className={`screen-enter theme-${theme} mx-auto min-h-screen max-w-4xl overflow-hidden bg-[#0b0d0c] px-5 pb-10 text-white`}>
-			<header className="flex items-center justify-between py-6">
+		<main className={`screen-enter theme-${theme} app-shell mx-auto min-h-screen max-w-4xl overflow-hidden px-5 pb-10 text-white`}>
+			<BackgroundOrbs />
+			<header className="relative z-10 flex items-center justify-between py-6">
 				<div className="flex items-center gap-3">
-					<div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-500 text-lg font-black text-white">T</div>
+					<div className="logo-glass flex h-10 w-10 items-center justify-center rounded-xl bg-red-500 text-lg font-black text-white">T</div>
 					<span className="text-lg font-black tracking-tight">TempoLift</span>
 				</div>
-				<ThemeToggle theme={theme} onToggle={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))} />
+				<ThemeToggle theme={theme} onToggle={toggleTheme} />
 			</header>
-			<section className="pb-8 pt-8">
+			<section className="relative z-10 pb-8 pt-8">
 				<p className="mb-3 text-sm font-bold uppercase tracking-[0.22em] text-red-500">Tu plan de hoy</p>
 				<div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
 					<div>
-						<h1 className="max-w-xs text-5xl font-black leading-[0.95] tracking-tight">Tu semana.</h1>
+						<h1 className="hero-title max-w-xs text-5xl font-black leading-[0.95] tracking-tight">Tu semana.</h1>
 						<p className="mt-5 max-w-md text-base leading-relaxed text-zinc-400">Visualiza tu entrenamiento y llega preparado a cada sesión.</p>
 					</div>
-					<div className="flex w-fit self-start rounded-xl border border-white/10 bg-[#121613] p-1" role="tablist" aria-label="Vista del calendario">
+					<div className="glass-card flex w-fit self-start rounded-xl p-1" role="tablist" aria-label="Vista del calendario">
 						<button
 							type="button"
 							role="tab"
@@ -233,7 +344,7 @@ function App() {
 					</div>
 				</div>
 			</section>
-			<section key={calendarView} className="view-switch overflow-hidden rounded-2xl border border-white/10 bg-[#121613] shadow-2xl shadow-black/20">
+			<section key={calendarView} className="view-switch glass-card relative z-10 overflow-hidden rounded-2xl shadow-2xl shadow-black/20">
 				<div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
 					<div>
 						<p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">Calendario semanal</p>
@@ -259,13 +370,14 @@ function App() {
 									</div>
 								)
 							}
+							const done = (checkedByDay[day.id] ?? []).length
 							return (
-									<button key={entry.day} type="button" onClick={() => setSelectedDay(day.id)} className="calendar-item group flex min-h-24 w-full items-center justify-between px-5 py-4 text-left transition hover:bg-white/5">
+								<button key={entry.day} type="button" onClick={() => selectDay(day.id)} className="calendar-item group flex min-h-24 w-full items-center justify-between px-5 py-4 text-left transition hover:bg-white/5">
 									<span className="flex items-center gap-4">
 										<span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-sm font-black text-[#0b0d0c] ${day.accent}`}>{entry.day}</span>
 										<span>
 											<strong className="block text-lg font-black text-white">{day.name}</strong>
-											<span className="mt-1 block text-sm text-zinc-500">{day.focus}</span>
+											<span className="mt-1 block text-sm text-zinc-500">{day.focus} · {done}/{day.exercises.length} ✓</span>
 										</span>
 									</span>
 									<span className="text-2xl text-zinc-600 transition group-hover:translate-x-1 group-hover:text-red-500">→</span>
@@ -288,7 +400,7 @@ function App() {
 									)
 								}
 								return (
-									<button key={entry.day} type="button" onClick={() => setSelectedDay(day.id)} className="calendar-item group min-h-44 rounded-xl border border-white/10 bg-white/5 p-3 text-left transition hover:-translate-y-1 hover:border-red-500/60 hover:bg-white/10">
+									<button key={entry.day} type="button" onClick={() => selectDay(day.id)} className="calendar-item glass-cell group min-h-44 rounded-xl border border-white/10 p-3 text-left transition hover:-translate-y-1 hover:border-red-500/60 hover:bg-white/10">
 										<span className={`flex h-9 w-9 items-center justify-center rounded-lg text-xs font-black text-[#0b0d0c] ${day.accent}`}>{entry.day}</span>
 										<strong className="mt-5 block text-sm font-black leading-tight text-white">{day.name}</strong>
 										<span className="mt-2 block text-xs leading-relaxed text-zinc-500">{day.focus}</span>
@@ -300,7 +412,7 @@ function App() {
 					</div>
 				)}
 			</section>
-			<footer className="mt-12 flex items-center justify-between border-t border-white/10 pt-5 text-xs font-bold uppercase tracking-widest text-zinc-600">
+			<footer className="relative z-10 mt-12 flex items-center justify-between border-t border-white/10 pt-5 text-xs font-bold uppercase tracking-widest text-zinc-600">
 				<span>Plan de 5 días</span>
 				<span>Fuerza + cardio</span>
 			</footer>
