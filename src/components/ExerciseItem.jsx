@@ -25,7 +25,6 @@ function MainViewer({ entry, enlarged, onToggleSize }) {
     // Ejercicio de peso corporal sin GIF en el dataset: tarjeta instructiva
     return (
       <div className="gif-wrap hang-card">
-        <span className="hang-emoji" aria-hidden="true">🤸</span>
         <p className="hang-title">Peso corporal · barra</p>
         <p className="hang-text">{entry.es}</p>
       </div>
@@ -57,12 +56,11 @@ function MainViewer({ entry, enlarged, onToggleSize }) {
         </button>
       ) : (
         <div className="gif-fallback">
-          <span aria-hidden="true">🏋️</span>
           <p>Animación no disponible offline</p>
         </div>
       )}
       <span className="gif-badge">GIF · {entry.id}</span>
-      <span className="gif-zoom-hint" aria-hidden="true">{enlarged ? '⤢ reduce' : '⤢ amplía'}</span>
+      <span className="gif-zoom-hint" aria-hidden="true">{enlarged ? 'Reducir' : 'Ampliar'}</span>
     </div>
   )
 }
@@ -120,9 +118,9 @@ function VariantCarousel({ items, activeId, onSelect }) {
                   }
                 }} />
               ) : (
-                <span className="variant-thumb variant-thumb-icon" aria-hidden="true">🤸</span>
+                <span className="variant-thumb variant-thumb-icon" aria-hidden="true">TL</span>
               )}
-              <span className="variant-name">{v.id === items[0].id ? `★ ${v.name}` : v.name}</span>
+              <span className="variant-name">{v.id === items[0].id ? `${v.name} · principal` : v.name}</span>
               <span className="variant-equip">{v.equipment}</span>
             </button>
           )
@@ -132,7 +130,7 @@ function VariantCarousel({ items, activeId, onSelect }) {
   )
 }
 
-function ExerciseItem({ name, reps, note, index, checked, partial, blocked, lastWeight, onToggle, expanded, onExpand, bundle }) {
+function ExerciseItem({ name, reps, note, index, checked, partial, blocked, lastWeight, weightUnit = 'lb', onToggle, expanded, onExpand, bundle }) {
   const [activeId, setActiveId] = useState(null)
   const [enlarged, setEnlarged] = useState(false)
   const primary = bundle?.primary ?? null
@@ -183,7 +181,7 @@ function ExerciseItem({ name, reps, note, index, checked, partial, blocked, last
           <span className="foot-chip series-chip">{checked ? '2/2 ✓' : `1/2${blocked ? ' · descansa' : ''}`}</span>
         )}
         {!checked && !partial && lastWeight != null && (
-          <span className="foot-chip dim">Últ: {lastWeight} lb</span>
+          <span className="foot-chip dim">Últ: {lastWeight} {weightUnit}</span>
         )}
         {primary && (
           <>
@@ -211,7 +209,7 @@ function ExerciseItem({ name, reps, note, index, checked, partial, blocked, last
                 </div>
                 <p className="detail-name">{active.name}</p>
                 {bundle?.pair && active.id === primary.id && (
-                  <p className="detail-pair">🔁 Biserie: alterna con <strong>{bundle.pair.name}</strong> ({bundle.pair.equipment})</p>
+                  <p className="detail-pair">Biserie: alterna con <strong>{bundle.pair.name}</strong> ({bundle.pair.equipment})</p>
                 )}
                 {primary.es && <p className="detail-instructions">{primary.es}</p>}
                 {steps.length > 0 && (

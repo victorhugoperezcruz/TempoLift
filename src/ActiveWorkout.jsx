@@ -1,6 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from './supabaseClient.js'
 
+// Unidad visible lb/kg. Todo se guarda en lb (columna weight_kg histórica).
+const LB_PER_KG = 2.20462
+
+function readWeightUnit() {
+	try {
+		return localStorage.getItem('tempolift-weight-unit') === 'kg' ? 'kg' : 'lb'
+	} catch {
+		return 'lb'
+	}
+}
+
+function displayWeight(lb, unit) {
+	const n = Number(lb)
+	if (!Number.isFinite(n)) return ''
+	if (unit === 'kg') return String(Math.round((n / LB_PER_KG) * 10) / 10)
+	return String(Math.round(n * 10) / 10)
+}
+
+function displayToLb(raw, unit) {
+	const v = parseFloat(raw)
+	if (!Number.isFinite(v)) return NaN
+	return unit === 'kg' ? v * LB_PER_KG : v
+}
+
 function formatRest(total) {
 	const m = Math.floor(total / 60)
 	const s = total % 60
@@ -20,6 +44,7 @@ function ActiveWorkout({ user, routineId, sessionId: initialSessionId = null, on
 	const [saving, setSaving] = useState(false)
 	const [restLeft, setRestLeft] = useState(0)
 	const [restLabel, setRestLabel] = useState('')
+	const [unit, setUnit] = useState(() => readWeightUnit())
 	const intervalRef = useRef(null)
 	const sessionPromiseRef = useRef(null)
 
@@ -138,8 +163,10 @@ function ActiveWorkout({ user, routineId, sessionId: initialSessionId = null, on
 		const key = `${item.exercise_id}-${setNumber}`
 		if (completed[key]) return
 		if (setNumber === 2 && !completed[`${item.exercise_id}-1`]) return
+		const currentUnit = readWeightUnit()
+		setUnit(currentUnit)
 		const prev = lastLogs[item.exercise_id]
-		setWeight(prev?.weight_kg != null ? String(prev.weight_kg) : '')
+		setWeight(prev?.weight_kg != null ? displayWeight(prev.weight_kg, currentUnit) : '')
 		setReps(prev?.reps != null ? String(prev.reps) : (item.target_reps != null ? String(item.target_reps) : ''))
 		setModal({
 			exercise_id: item.exercise_id,
@@ -157,19 +184,35 @@ function ActiveWorkout({ user, routineId, sessionId: initialSessionId = null, on
 		setReps('')
 	}
 
+	const switchUnit = (u) => {
+		if (u === unit) return
+		setWeight((cur) => {
+			if (cur === '') return cur
+			const lb = displayToLb(cur, unit)
+			return Number.isFinite(lb) ? displayWeight(lb, u) : cur
+		})
+		setUnit(u)
+		try {
+			localStorage.setItem('tempolift-weight-unit', u)
+		} catch {
+			// sin localStorage: la preferencia vive solo en memoria
+		}
+	}
+
 	const confirmSet = async (e) => {
 		if (e) e.preventDefault()
 		if (!modal) return
-		const w = parseFloat(weight)
+		const wLb = displayToLb(weight, unit)
 		const r = parseInt(reps, 10)
-		if (Number.isNaN(w) || w < 0) {
-			setErrorMsg('Ingresa un peso válido (>= 0)')
+		if (!Number.isFinite(wLb) || wLb < 0) {
+			setErrorMsg(`Ingresa un peso válido en ${unit} (>= 0)`)
 			return
 		}
 		if (Number.isNaN(r) || r < 0) {
 			setErrorMsg('Ingresa repeticiones válidas (>= 0)')
 			return
 		}
+		const w = Math.round(wLb * 100) / 100
 		setSaving(true)
 		setErrorMsg('')
 		try {
@@ -288,7 +331,7 @@ function ActiveWorkout({ user, routineId, sessionId: initialSessionId = null, on
 								<span className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">Objetivo 2x{item.target_reps ?? '—'}</span>
 							</div>
 							<p className="mt-2 text-sm text-zinc-400">
-								{prev ? `Último: ${prev.weight_kg}lb x ${prev.reps} reps` : 'Sin registro previo · úsalo como guía'}
+								{prev ? `Último: ${displayWeight(prev.weight_kg, unit)}${unit} x ${prev.reps} reps` : 'Sin registro previo · úsalo como guía'}
 							</p>
 							<div className="mt-3 flex items-center gap-3">
 								{[1, 2].map((n) => {
@@ -311,7 +354,7 @@ function ActiveWorkout({ user, routineId, sessionId: initialSessionId = null, on
 											className={`flex min-h-12 flex-1 items-center justify-center gap-2 rounded-xl border px-4 text-sm font-bold transition ${done ? 'border-emerald-500/60 bg-emerald-500/15 text-emerald-300' : needsS1First ? 'border-white/5 bg-white/[0.02] text-zinc-600' : 'border-white/10 bg-white/5 text-white hover:border-red-500/60'} disabled:cursor-not-allowed disabled:opacity-50`}
 										>
 											<span aria-hidden="true" className={`flex h-6 w-6 items-center justify-center rounded-md border ${done ? 'border-emerald-400 bg-emerald-500 text-[#0b0d0c]' : 'border-white/20 bg-transparent text-transparent'}`}>✓</span>
-											<span>S{n}{done ? ` · ${done.weight_kg}lb x ${done.reps}` : ''}</span>
+											<span>S{n}{done ? ` · ${displayWeight(done.weight_kg, unit)}${unit} x ${done.reps}` : ''}</span>
 										</button>
 									)
 								})}
@@ -340,15 +383,28 @@ function ActiveWorkout({ user, routineId, sessionId: initialSessionId = null, on
 						<h3 className="text-lg font-black text-white">{modal.exerciseName} · Serie {modal.setNumber}/2</h3>
 						<p className="mt-1 text-xs uppercase tracking-widest text-zinc-500">Objetivo {modal.target_reps ?? '—'} reps · Descanso {modal.rest_seconds}s</p>
 						<form onSubmit={confirmSet} className="mt-4 flex flex-col gap-3">
+							<div className="glass-inset flex rounded-xl p-1" role="group" aria-label="Unidad de peso">
+								{['lb', 'kg'].map((u) => (
+									<button
+										key={u}
+										type="button"
+										onClick={() => switchUnit(u)}
+										aria-pressed={unit === u}
+										className={`flex-1 rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-widest transition ${unit === u ? 'bg-red-500 text-white' : 'text-zinc-500 hover:text-white'}`}
+									>
+										{u === 'lb' ? 'lb' : 'kg'}
+									</button>
+								))}
+							</div>
 							<label className="flex flex-col gap-1 text-xs font-bold uppercase tracking-widest text-zinc-400">
-								Peso (lb)
+								Peso ({unit})
 								<input
 									type="number"
 									min="0"
 									step="0.5"
 									value={weight}
 									onChange={(e) => setWeight(e.target.value)}
-									placeholder="ej. 135"
+									placeholder={unit === 'kg' ? 'ej. 60' : 'ej. 135'}
 									autoFocus
 									className="glass-inset rounded-xl px-4 py-3 text-sm normal-case tracking-normal text-white placeholder:text-zinc-600"
 								/>

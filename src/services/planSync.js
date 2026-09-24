@@ -93,7 +93,13 @@ export async function fetchLastWeights(supabase, userId, exerciseIds) {
 	return map
 }
 
-export async function saveDaySession(supabase, userId, routineId, byIndex, weights, startedAt) {
+export async function saveDaySession(supabase, userId, routineId, byIndex, weights, startedAt, extras = null) {
+	const notes = extras
+		? JSON.stringify({
+			...(extras.cardioMin != null ? { cardioMin: extras.cardioMin, cardioKcal: extras.cardioKcal, ...(extras.cardioMachineKcal != null ? { cardioMachineKcal: extras.cardioMachineKcal } : {}) } : {}),
+			...(extras.warmupMin != null ? { warmupMin: extras.warmupMin, warmupKcal: extras.warmupKcal, ...(extras.warmupMachineKcal != null ? { warmupMachineKcal: extras.warmupMachineKcal } : {}) } : {}),
+		})
+		: null
 	const { data: session, error: sessionError } = await supabase
 		.from('workout_sessions')
 		.insert({
@@ -101,6 +107,9 @@ export async function saveDaySession(supabase, userId, routineId, byIndex, weigh
 			routine_id: routineId,
 			started_at: startedAt ?? new Date().toISOString(),
 			ended_at: new Date().toISOString(),
+			// El cardio y el calentamiento (minutos + kcal) viajan en notes como JSON.
+			// Las sesiones antiguas sin notes aportan 0 kcal extra.
+			notes,
 		})
 		.select('id')
 		.single()

@@ -208,20 +208,20 @@
 }
 
 .screen-enter {
-  animation: screen-enter 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: screen-enter 420ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 .view-switch {
-  animation: view-switch 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: view-switch 360ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 .phase-content {
-  animation: phase-content 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: phase-content 320ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
   transform-origin: top;
 }
 
 .calendar-item {
-  animation: calendar-item 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: calendar-item 420ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 .theme-dark,
@@ -258,7 +258,7 @@
 }
 
 .routine-card {
-  animation: card-enter 500ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: card-enter 500ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 .exercise-row {
@@ -539,7 +539,7 @@
 }
 
 .hero-title {
-  animation: hero-in 700ms var(--spring) both;
+  animation: hero-in 700ms var(--spring) backwards;
 }
 
 /* Fases con altura animada real (sin montaje brusco) */
@@ -584,7 +584,7 @@
 
 /* Entrada escalonada */
 .stagger {
-  animation: stagger-in 600ms var(--spring) both;
+  animation: stagger-in 600ms var(--spring) backwards;
   animation-delay: var(--d, 0ms);
 }
 
@@ -1946,5 +1946,217 @@
   .gif-wrap.enlarged .exercise-gif {
     width: min(100%, 300px);
     height: min(100%, 300px);
+  }
+}
+
+/* ============ BottomNav siempre visible ============ */
+/* Red de seguridad: aunque Tailwind no genere las utilidades en el build
+   de prod, la navbar queda fija al viewport. Debe renderizarse fuera de
+   cualquier ancestro con transform/animación (ver App.jsx). */
+.bottom-nav {
+  position: fixed !important;
+  bottom: max(0.75rem, env(safe-area-inset-bottom)) !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  z-index: 40 !important;
+  width: calc(100% - 1.5rem) !important;
+  max-width: 28rem !important;
+}
+
+/* Navbar inferior en tema claro: vive fuera del <main class="theme-light">,
+   así que no hereda .theme-light .glass-card; se pinta por clase propia. */
+.bottom-nav-light .glass-card {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.75)) !important;
+  box-shadow: 0 8px 32px rgba(24, 32, 25, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+  border-color: rgba(24, 32, 25, 0.1) !important;
+}
+
+/* ============ Combobox personalizado (reemplaza <select> vanilla) ============ */
+.custom-select {
+  position: relative;
+  width: 100%;
+}
+
+.custom-select-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 48px;
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: normal;
+  text-transform: none;
+  color: #e4e4e7;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition-property: background-color, border-color, color, box-shadow, transform;
+  transition-duration: 280ms;
+  transition-timing-function: var(--spring, cubic-bezier(.22,1,.36,1));
+}
+
+.custom-select-btn:hover {
+  border-color: rgba(255, 45, 45, 0.4);
+}
+
+.custom-select.open .custom-select-btn {
+  border-color: rgba(255, 45, 45, 0.55);
+  box-shadow: 0 0 0 3px rgba(255, 45, 45, 0.15);
+}
+
+.custom-select-value {
+  color: #fafafa;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.custom-select-placeholder {
+  color: #8a8f8c;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.custom-select-chevron {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: #f87171;
+  transition: transform 280ms var(--spring, cubic-bezier(.22,1,.36,1));
+}
+
+.custom-select-chevron.open {
+  transform: rotate(180deg);
+}
+
+.custom-select-list {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 60;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  border-radius: 14px;
+  overflow: hidden;
+  /* Lista opaca: el glass-card base es traslúcido y dejaba ver los
+     botones de atrás (ej. "Omitir por ahora"). Fondo sólido + sombra. */
+  background: #161b17 !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  border: 1px solid rgba(255, 45, 45, 0.35) !important;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6) !important;
+  isolation: isolate;
+  animation: custom-select-in 220ms var(--spring, cubic-bezier(.22,1,.36,1)) both;
+}
+
+.custom-select-option {
+  border-radius: 10px;
+}
+
+.custom-select-option-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 11px 12px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: normal;
+  color: #d4d4d8;
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+.custom-select-option.active .custom-select-option-btn {
+  background: rgba(255, 45, 45, 0.12);
+  color: #fff;
+}
+
+.custom-select-option.selected .custom-select-option-btn {
+  color: #fca5a5;
+}
+
+.custom-select-option-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
+.custom-select-option-btn.is-clear {
+  color: #8a8f8c;
+  font-weight: 600;
+}
+
+.custom-select-check {
+  color: #22c55e;
+  font-weight: 900;
+}
+
+@keyframes custom-select-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Tema claro: combobox (lista también opaca) */
+.theme-light .custom-select-list {
+  background: #ffffff !important;
+  border-color: rgba(220, 38, 38, 0.3) !important;
+  box-shadow: 0 16px 48px rgba(24, 32, 25, 0.2) !important;
+}
+
+.theme-light .custom-select-btn {
+  color: #3f4940;
+}
+
+.theme-light .custom-select-value {
+  color: #182019;
+}
+
+.theme-light .custom-select-placeholder {
+  color: #8a938a;
+}
+
+.theme-light .custom-select-option-btn {
+  color: #3f4940;
+}
+
+.theme-light .custom-select-option.active .custom-select-option-btn {
+  background: rgba(220, 38, 38, 0.1);
+  color: #182019;
+}
+
+.theme-light .custom-select-option.selected .custom-select-option-btn {
+  color: #dc2626;
+}
+
+.theme-light .custom-select-option-btn:hover {
+  background: rgba(24, 32, 25, 0.06);
+  color: #182019;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .custom-select-list {
+    animation: none;
+  }
+  .custom-select-chevron {
+    transition: none;
   }
 }
