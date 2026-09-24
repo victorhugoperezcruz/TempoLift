@@ -1,6 +1,11 @@
 import { memo, useCallback, useEffect, useState } from 'react'
+import { createClient } from '@supabase/supabase-js'
 import ExerciseItem from './components/ExerciseItem.jsx'
 import { getExerciseBundle } from './services/exercisesApi.js'
+
+const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL ?? '').replace(/\/rest\/v1\/?$/, '')
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY ?? ''
+const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 const globalPhases = {
 	warmup: {
@@ -162,6 +167,7 @@ const BackgroundOrbs = memo(function BackgroundOrbs() {
 })
 
 function App() {
+	const [session, setSession] = useState(null)
 	const [selectedDay, setSelectedDay] = useState(null)
 	const [calendarView, setCalendarView] = useState('list')
 	const [theme, setTheme] = useState('dark')
@@ -208,6 +214,22 @@ function App() {
 
 	const selectDay = useCallback((id) => setSelectedDay(id), [])
 	const goBack = useCallback(() => setSelectedDay(null), [])
+	const signInWithGoogle = useCallback(async () => {
+		await supabase.auth.signInWithOAuth({ provider: 'google' })
+	}, [])
+	const signOut = useCallback(async () => {
+		await supabase.auth.signOut()
+	}, [])
+
+	useEffect(() => {
+		supabase.auth.getSession().then(({ data: { session } }) => {
+			setSession(session)
+		})
+		const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+			setSession(session)
+		})
+		return () => subscription.unsubscribe()
+	}, [])
 
 	// Al marcar todo: día terminado + auto-reset para no guardar marcas para siempre
 	useEffect(() => {
@@ -224,6 +246,30 @@ function App() {
 		setDayComplete(false)
 	}, [selectedDay])
 
+	if (!session) {
+		return (
+			<main className={`screen-enter theme-${theme} app-shell mx-auto min-h-screen max-w-lg px-5 pb-10 text-white`} style={{ backgroundColor: '#0b0d0c' }}>
+				<BackgroundOrbs />
+				<div className="relative z-10 flex min-h-screen flex-col items-center justify-center">
+					<div className="glass-card w-full max-w-sm rounded-2xl p-8 text-center">
+						<div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-red-500 text-xl font-black text-white">T</div>
+						<h1 className="mt-4 text-3xl font-black tracking-tight">TempoLift</h1>
+						<p className="mt-2 text-sm leading-relaxed text-zinc-400">Inicia sesión para ver tu plan semanal de fuerza.</p>
+						<button
+							type="button"
+							onClick={signInWithGoogle}
+							className="glass-card mt-6 flex min-h-12 w-full items-center justify-center gap-3 rounded-xl px-4 text-sm font-bold text-white transition hover:border-red-500/60"
+						>
+							<span aria-hidden="true">G</span>
+							<span>Continuar con Google</span>
+						</button>
+						<p className="mt-4 text-xs uppercase tracking-widest text-zinc-600">Tempo 3-1-1 · 5 días</p>
+					</div>
+				</div>
+			</main>
+		)
+	}
+
 	if (selectedWorkout) {
 		return (
 			<main className={`screen-enter theme-${theme} app-shell mx-auto min-h-screen max-w-lg px-5 pb-10 text-white`}>
@@ -232,7 +278,12 @@ function App() {
 					<button type="button" onClick={goBack} className="back-btn flex min-h-12 items-center gap-2 text-sm font-bold uppercase tracking-widest text-zinc-400" aria-label="Volver a los días">
 						<span className="text-2xl leading-none text-red-500">‹</span> Días
 					</button>
-					<ThemeToggle theme={theme} onToggle={toggleTheme} />
+					<div className="flex items-center gap-2">
+						<button type="button" onClick={signOut} className="flex min-h-10 items-center rounded-xl border border-white/10 px-3 text-[11px] font-bold uppercase tracking-widest text-zinc-500 transition hover:border-white/25 hover:text-zinc-300">
+							Cerrar sesión
+						</button>
+						<ThemeToggle theme={theme} onToggle={toggleTheme} />
+					</div>
 				</header>
 				<div className="relative z-10 mb-6">
 					<p className="mb-2 text-sm font-bold uppercase tracking-[0.2em] text-red-500">Día {selectedWorkout.id} / 5</p>
@@ -313,7 +364,12 @@ function App() {
 					<div className="logo-glass flex h-10 w-10 items-center justify-center rounded-xl bg-red-500 text-lg font-black text-white">T</div>
 					<span className="text-lg font-black tracking-tight">TempoLift</span>
 				</div>
-				<ThemeToggle theme={theme} onToggle={toggleTheme} />
+				<div className="flex items-center gap-2">
+					<button type="button" onClick={signOut} className="flex min-h-10 items-center rounded-xl border border-white/10 px-3 text-[11px] font-bold uppercase tracking-widest text-zinc-500 transition hover:border-white/25 hover:text-zinc-300">
+						Cerrar sesión
+					</button>
+					<ThemeToggle theme={theme} onToggle={toggleTheme} />
+				</div>
 			</header>
 			<section className="relative z-10 pb-8 pt-8">
 				<p className="mb-3 text-sm font-bold uppercase tracking-[0.22em] text-red-500">Tu plan de hoy</p>
