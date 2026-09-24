@@ -132,7 +132,7 @@ function VariantCarousel({ items, activeId, onSelect }) {
   )
 }
 
-function ExerciseItem({ name, reps, note, index, checked, onToggle, expanded, onExpand, bundle }) {
+function ExerciseItem({ name, reps, note, index, checked, partial, blocked, lastWeight, onToggle, expanded, onExpand, bundle }) {
   const [activeId, setActiveId] = useState(null)
   const [enlarged, setEnlarged] = useState(false)
   const primary = bundle?.primary ?? null
@@ -140,16 +140,16 @@ function ExerciseItem({ name, reps, note, index, checked, onToggle, expanded, on
   const steps = primary?.steps ?? []
 
   return (
-    <div className={`exercise-row ${checked ? 'is-checked' : ''} ${expanded ? 'is-expanded' : ''}`}>
+    <div className={`exercise-row ${checked ? 'is-checked' : ''} ${partial ? 'is-partial' : ''} ${expanded ? 'is-expanded' : ''}`}>
       <div className="exercise-main">
-        {/* Checkmark 100% custom: sin input vanilla */}
+        {/* Checkmark 100% custom: sin input vanilla. Serie 1 = ámbar, serie 2 = verde */}
         <button
           type="button"
           role="checkbox"
-          aria-checked={checked}
-          aria-label={checked ? `Desmarcar ${name}` : `Marcar ${name} como hecho`}
+          aria-checked={partial ? 'mixed' : checked}
+          aria-label={checked ? `Desmarcar ${name}` : partial ? `Marcar serie 2 de ${name}` : `Marcar serie 1 de ${name}`}
           onClick={onToggle}
-          className={`custom-check ${checked ? 'checked' : ''}`}
+          className={`custom-check ${checked ? 'checked' : ''} ${partial ? 'partial' : ''}`}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true" className="check-svg">
             <path d="M5 12.5l4.5 4.5L19 7.5" fill="none" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
@@ -179,6 +179,12 @@ function ExerciseItem({ name, reps, note, index, checked, onToggle, expanded, on
       </div>
       <div className="exercise-foot">
         <span className="exercise-reps">{reps}</span>
+        {(checked || partial) && (
+          <span className="foot-chip series-chip">{checked ? '2/2 ✓' : `1/2${blocked ? ' · descansa' : ''}`}</span>
+        )}
+        {!checked && !partial && lastWeight != null && (
+          <span className="foot-chip dim">Últ: {lastWeight} lb</span>
+        )}
         {primary && (
           <>
             <span className="foot-chip">{primary.target}</span>

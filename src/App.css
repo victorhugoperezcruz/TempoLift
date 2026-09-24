@@ -620,6 +620,11 @@
   border-color: rgba(34, 197, 94, 0.22);
 }
 
+.exercise-row.is-partial {
+  background: rgba(245, 158, 11, 0.07);
+  border-color: rgba(245, 158, 11, 0.28);
+}
+
 .exercise-main {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -653,6 +658,12 @@
   color: #a1a1aa;
   background: rgba(255, 255, 255, 0.05);
   border-color: rgba(255, 255, 255, 0.1);
+}
+
+.foot-chip.series-chip {
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.3);
 }
 
 .exercise-text {
@@ -733,6 +744,24 @@
 }
 
 .custom-check.checked .check-ripple {
+  animation: ripple-out 600ms var(--spring) both;
+}
+
+/* Serie 1 de 2: ámbar, a medio camino del verde de completado */
+.custom-check.partial {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  border-color: #f59e0b;
+  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  animation: check-pop 420ms var(--spring-bounce);
+}
+
+.custom-check.partial .check-svg path {
+  stroke: #fff;
+  stroke-dashoffset: 0;
+}
+
+.custom-check.partial .check-ripple {
+  border-color: rgba(245, 158, 11, 0.6);
   animation: ripple-out 600ms var(--spring) both;
 }
 
