@@ -1,15 +1,15 @@
 # TempoLift — Archivo de Contexto del Proyecto
 
-> Actualizado el 2026-09-24 tras lectura completa del repo + verificación de líneas.
-> Fuente de verdad: `src/App.jsx` (~2993 líneas), `src/ActiveWorkout.jsx` (~467), `src/components/ExerciseItem.jsx` (~272), `src/components/BottomNav.jsx` (93), `src/services/exercisesApi.js` (~211), `src/services/planSync.js` (~159), `src/supabaseClient.js` (22), `src/main.jsx`, `src/index.css`, `src/App.css` (~2368), `package.json`, `vite.config.js`, `tailwind.config.js`, `index.html`, `supabase/migrations/*.sql`.
+> Actualizado el 2026-09-25: combobox tras card Apariencia (fix z-index), logout fuera del detalle de día, skeletons con retardo mínimo + BottomNav sin marcar en rutina.
+> Fuente de verdad: `src/App.jsx` (~3048 líneas), `src/ActiveWorkout.jsx` (~467), `src/components/ExerciseItem.jsx` (~272), `src/components/BottomNav.jsx` (93), `src/components/Skeleton.jsx` (~174), `src/hooks/useDelayedVisible.js` (21), `src/services/exercisesApi.js` (~211), `src/services/planSync.js` (~159), `src/supabaseClient.js` (22), `src/main.jsx`, `src/index.css`, `src/App.css` (~2538), `package.json`, `vite.config.js`, `tailwind.config.js`, `index.html`, `supabase/migrations/*.sql`.
 
 ## 1. Qué es
 
 **TempoLift** es una SPA React + Vite + Supabase (sin router) para seguir un plan semanal de fuerza de 5 días estilo Planet Fitness, con tempo `3-1-1` y descanso `2-3 min`, ahora con **auth, historial persistente, pesos por serie, cardio/calentamiento contabilizados, estimación de kcal y perfil con stats**.
 
 - Entrada: `index.html` → `div#root` → `src/main.jsx` (StrictMode) → `src/App.jsx`.
-- Auth gate: sin `session` solo se ve login con Google; con sesión se ven `home / history / profile` + detalle de día.
-- Estilos: Tailwind (`src/index.css` + base body `#0b0d0c`) + `src/App.css` (sistema glassy, animaciones, tema claro, responsive, carrusel, visor GIF, bottom-nav, custom-select, modal-card, snackbar, day-row/day-list).
+- Auth gate con `authChecking`: mientras se resuelve `getSession` no se muestra ni login ni app (fondo vacío, y skeleton solo si tarda >150ms); sin `session` solo login con Google; con sesión `home / history / profile` + detalle de día.
+- Estilos: Tailwind (`src/index.css` + base body `#0b0d0c`) + `src/App.css` (sistema glassy, animaciones, tema claro, responsive, carrusel, visor GIF, bottom-nav, custom-select + fix z-index `:has(.open)`, modal-card, snackbar, day-row/day-list, skeletons `.skel` con shimmer).
 - Lint: `oxlint`. Build: `vite build`. Dev: `vite`.
 
 ## 2. Stack
@@ -32,10 +32,12 @@
 index.html                          # título TempoLift, div#root
 public/favicon.svg, public/icons.svg
 src/main.jsx                        # bootstrap React (sin cambios)
-src/App.jsx                         # ~2913 líneas: app completa (home, día, historial, perfil, onboarding, timers, kcal)
+src/App.jsx                         # ~3048 líneas: app completa (home, día, historial, perfil, onboarding, timers, kcal, skeletons)
 src/ActiveWorkout.jsx               # ~467 líneas: LEGADO / NO USADO — flujo paralelo de rutina genérica (ver F0). Con scroll-lock + autofocus táctil igualados
 src/components/ExerciseItem.jsx     # ~272 líneas: fila ejercicio + visor + carrusel + historial (partial/blocked/lastWeight/lastReps/history)
-src/components/BottomNav.jsx        # 93 líneas: nav fija Inicio/Historial/Perfil
+src/components/BottomNav.jsx        # 93 líneas: nav fija Inicio/Historial/Perfil (acepta `value={null}` = ninguna activa, usado en detalle de día)
+src/components/Skeleton.jsx         # ~174 líneas: Boot/Home/Day/History/Profile/Sets skeletons + SkeletonCard (ver F14)
+src/hooks/useDelayedVisible.js      # 21 líneas: hook retardo mínimo anti-flash para skeletons (ver F14)
 src/services/exercisesApi.js        # ~211 líneas: catálogo MEDIA + BUNDLES + helpers URL (colgado/antebrazo eliminados, curl máquina añadido)
 src/services/planSync.js            # ~159 líneas: puente plan local ↔ Supabase (ensureDayRows, fetchLastWeights, fetchRecentLogs, saveDaySession)
 src/supabaseClient.js               # 22 líneas: createClient + normaliza URL (`/rest/v1` fuera) + aviso claro si faltan VITE_* (requiere reiniciar `npm run dev`)
@@ -79,7 +81,9 @@ supabase/check_security.sql         # script de revisión
 
 ### F0 — Auth + gate (`supabaseClient.js`, `App.jsx`)
 
-- `supabase.auth.getSession()` + `onAuthStateChange`. `signInWithGoogle` (OAuth Google, `redirectTo: origin`), `signOut`.
+- `supabase.auth.getSession()` + `onAuthStateChange` (ambos ponen `setAuthChecking(false)`; sin guard `done` para no bloquear logins/logouts posteriores). `signInWithGoogle` (OAuth Google, `redirectTo: origin`), `signOut` (solo vive en Mi perfil → Cuenta).
+- `authChecking=true` inicial: no se renderiza login ni app (fondo vacío con `aria-busy`); si tarda >150ms (`bootVisible = useDelayedVisible(authChecking, 150)`) se muestra `BootSkeleton`. Así no hay flash de login antes de saberse la sesión.
+- Sin sesión: pantalla login (`T TempoLift + Continuar con Google + tagline estático Tempo 3-1-1 · 5 días`). Con sesión: app completa.
 - Sin sesión: pantalla login (`T TempoLift + Continuar con Google + tagline estático Tempo 3-1-1 · 5 días`). Con sesión: app completa.
 - `friendlyError(err)`: mensaje legible (permiso 42501, red, tabla faltante PGRST) + log técnico solo en `DEV`.
 - `ActiveWorkout.jsx` es **legado no usado**: implementa su propio flujo de rutina genérica (`routine_exercises` + `ensureSessionId` lazy + modales S1/S2 + `finishWorkout`). `App.jsx` lo eliminó a propósito ("un solo flujo de entreno: el plan semanal") para evitar doble conteo. No se importa en ningún lado.
@@ -94,7 +98,10 @@ supabase/check_security.sql         # script de revisión
 
 ### F2 — Detalle de día (`selectedWorkout != null`, `max-w-lg`)
 
-- Header `‹ Días` + `Cerrar sesión`. Título `Día {posición} / {trainingCount}` (posición entre los días que entrenan, no el id). `name`, `focus`.
+- Header solo `‹ Días` (`justify-start`): el botón `Cerrar sesión` se eliminó de esta vista (el logout vive solo en Mi perfil → Cuenta).
+- `BottomNav` con `value={null}` en esta vista: la rutina no es ninguna pestaña, así que ninguna va activa (sin `aria-current`). `handleNav` cierra el día al navegar. Home/historial/perfil sí pasan `value={currentView}`.
+- Título `Día {posición} / {trainingCount}` (posición entre los días que entrenan, no el id). `name`, `focus`.
+- Si `planIds` tarda (>150ms, `showDaySkel`), la `routine-card` se reemplaza por `DaySkeleton` (cabecera y progreso, locales, se ven al instante).
 - Progreso **sticky** (`position:sticky top-2`): `done/total`, `progressbar`, texto contextual (incluye `falta: calentamiento + cardio`), línea viva `~X kcal est. (fuerza + cardio + calent.) · Y kg movidos`, `syncError` ámbar si el día no se guardará, card de descanso inline con `Omitir`.
 - Banner `dayComplete`: muestra estado de guardado (`Guardado ✓ · ~X kcal / Guardando… / No se pudo guardar: …`), botón `Reiniciar ahora`.
 - `routine-card` con 3 `Phase` acordeón (`warmup/strength/cardio`, default `strength`): warmup y cardio tienen su check propio de 1 marca que abre modal de minutos; fuerza lista `ExerciseItem`s con regla global tempo·rest.
@@ -132,12 +139,14 @@ supabase/check_security.sql         # script de revisión
 ### F8 — Historial (`currentView==='history'`)
 
 - `fetchSb()`: últimas 20 `routines` + `workout_sessions` (se re-fetch al cambiar de vista y tras guardar). Solo terminadas (`ended_at`) cuentan.
-- Lista expandible por sesión (`openSession`): fecha, cardio/calentamiento (min + kcal máq. o estimada), series vía `set_logs + exercises(name)` ordenadas por `created_at`.
+- Stale-while-revalidate: los datos viejos nunca se borran al recargar; el contador muestra el dato existente (`sbLoading && finished.length===0` es la única condición de "Cargando…"). Sin datos + carga >150ms (`showHistorySkel`) se muestra `HistorySkeleton` (cards estilo referencia: avatar + líneas + bloque + puntos).
+- Lista expandible por sesión (`openSession`): fecha, cardio/calentamiento (min + kcal máq. o estimada), series vía `set_logs + exercises(name)` ordenadas por `created_at`. Series en carga: `SetsSkeleton` inline si tarda >100ms (`showSetsSkel`), si no texto "Cargando series…".
 - Edición inline por serie (`editingSet`, `editWeight/editReps` con `UnitToggle`): `update set_logs`. Borrado en 2 toques (`confirmDelete`): borra `set_logs` de la sesión + la `workout_sessions`. Mensajes vía `setMsg + friendlyError`.
 
 ### F9 — Perfil + stats + onboarding (`currentView==='profile'`)
 
-- Tarjeta usuario (inicial + email), stats últimas 20 sesiones: **sesiones, kcal totales, kcal/sesión, racha de días** (`dayStreak`: días consecutivos con sesión, tolera hoy vacío si ayer hubo).
+- Tarjeta usuario (inicial + email), stats últimas 20 sesiones: **sesiones, kcal totales, kcal/sesión, racha de días** (`dayStreak`: días consecutivos con sesión, tolera hoy vacío si ayer hubo). Los `…` solo salen sin datos previos (`sbLoading && finished.length===0`, `statsLoading && statsRows.length===0`); en refetch se conserva lo visible.
+- Sin `statsRows` + carga >150ms (`showProfileSkel`) se muestra `ProfileSkeleton` (cabecera + 4 tiles + cards). La sección Gráficas ya no se reemplaza por "Calculando…" en refetch: ese texto (y el de vacío) solo sale con `chartData.length===0`.
 - Agregado por sesión (`useEffect[currentView==='profile']`): `set_logs` (volumen kg = Σ lb→kg×reps, peso máx lb, kcal fuerza = volumen×0.05) + `notes` (cardio/warmup kcal) → `statsRows`.
 - Gráficas SVG puras (últimas 10 sesiones cronológicas + 8 semanas) con resúmenes en lenguaje simple: `CalorieBars` (apiladas fuerza rojo + cardio ámbar + calent. sky, con valor total sobre cada barra, línea de promedio y pie "promedio/best") + `WeekBars` (`sessionsByWeek`: sesiones/semana lunes-domingo, meta configurable `weekGoal` en verde, semana en curso en rojo) + `TrendLine` de peso total movido (kg, azul, con % vs primera sesión) + lista `exerciseRecords` (mejor marca por ejercicio con reps y fecha, top 6 + ver todos, en la unidad lb/kg visible). La query de stats trae `exercises(name)` para los récords.
 - Formulario `Mis datos`: peso (lb/kg + `UnitToggle`), altura cm, edad, sexo (`CustomSelect`); muestra IMC si hay peso+altura; guarda en memoria + local + Supabase `profiles` (tolerante si falta tabla). Secciones Apariencia (toggle tema), Meta semanal (stepper 1-7 `weekGoal`/`changeWeekGoal` —cambiarla **regenera la semana** con `buildWeekMapForGoal` y avisa por snackbar— `readWeekGoal/persistWeekGoal` por usuario `tempolift-week-goal-{uid}`, barra `day-progress` + mensaje; consejo por nivel `weekGoalTip` sin emojis, ámbar en 7; alimenta `WeekBars goal` y su pie), Tus datos (`wipeHistory`: borra `set_logs` + `workout_sessions` del usuario con doble toque, rutinas/perfil intactos, estados `dataMsg/confirmWipe` reseteados en `handleNav`), Cuenta (cerrar sesión).
@@ -155,12 +164,12 @@ supabase/check_security.sql         # script de revisión
 - `BottomNav` fija fuera del `<main>` animado (si no, `fixed` se vuelve relativo al main con `transform`); recibe `theme` por prop por el mismo motivo. `RestPill` igual.
 - Modales sin scroll de fondo: `useEffect[anyModalOpen]` pone `body{overflow:hidden; overscroll:none}` (en `App.jsx` y `ActiveWorkout.jsx`); overlay `overflow-y-auto overscroll-contain` + card `.modal-card m-auto` (scroll interno si supera `100dvh-2rem`); `autoFocus={FINE_POINTER}` (solo puntero fino, en táctil no abre el teclado de golpe).
 - SPA sin router: `useEffect[selectedDay, currentView]` hace `window.scrollTo(0,0)` para que cada pantalla empiece arriba.
-- `CustomSelect` (reemplaza `<select>` vanilla): botón + lista glassy, teclado (↑↓/Enter/Esc), click-fuera, `listbox/option`, opción vacía "Prefiero no decir/Selecciona…".
+- `CustomSelect` (reemplaza `<select>` vanilla): botón + lista glassy, teclado (↑↓/Enter/Esc), click-fuera, `listbox/option`, opción vacía "Prefiero no decir/Selecciona…". Fix z-index: cada `.glass-card` crea stacking context (`backdrop-filter`), así que la lista (`z-60`) quedaba tras la card siguiente (Apariencia); con `.custom-select.open { z-index:40 }` + `.glass-card:has(.custom-select.open):not(.modal-card) { z-index:30; overflow:visible }` la card abierta sube por encima (`:not(.modal-card)` para no romper el scroll interno del onboarding).
 - `SEX_OPTIONS = masculino/femenino/otro`.
 
 ### F12 — Visual / UX / a11y (heredado + añadidos)
 
-- Glassmorphism, orbes fijos, springs, stagger, `prefers-reduced-motion`, responsive `max-w-4xl/ max-w-lg`, `pb-28` por bottom-nav, `sticky` progreso, modales `fixed z-50 bg-black/70` con card `.modal-card` (scroll interno, inputs 16px en móvil), `UnitToggle`, `bottom-nav`, `custom-select`, `.snackbar`, viewport con `viewport-fit=cover, interactive-widget=resizes-content` en `App.css` / `index.html`.
+- Glassmorphism, orbes fijos, springs, stagger, `prefers-reduced-motion`, responsive `max-w-4xl/ max-w-lg`, `pb-28` por bottom-nav, `sticky` progreso, modales `fixed z-50 bg-black/70` con card `.modal-card` (scroll interno, inputs 16px en móvil), `UnitToggle`, `bottom-nav`, `custom-select`, `.snackbar`, skeletons `.skel` (ver F14), viewport con `viewport-fit=cover, interactive-widget=resizes-content` en `App.css` / `index.html`.
 - A11y: `checkbox/progressbar/tab/listbox/option/status/dialog/alert`, `aria-expanded/checked/selected/pressed`, `aria-live` en descanso/kcal/IMC/meta, `loading=lazy`, `focus-visible`.
 
 ### F13 — Límites conocidos
@@ -170,6 +179,13 @@ supabase/check_security.sql         # script de revisión
 - Sin ejercicios de peso corporal sin GIF (colgado eliminado). Columna `weight_kg` guarda lb (legado, documentado en código).
 - `ActiveWorkout.jsx` muerto: si se quiere rutina libre, hay que reconectarlo o borrarlo.
 - `.env.local` requerido (`VITE_SUPABASE_URL` base sin `/rest/v1` + `VITE_SUPABASE_ANON_KEY` formato `sb_…` válido); Vite solo lo lee al arrancar (`npm run dev` tras editarlo). Sin él Supabase falla (ver `friendlyError`).
+
+### F14 — Skeleton screens con retardo mínimo (`Skeleton.jsx`, `useDelayedVisible.js`, `.skel` en `App.css`)
+
+- Estilo de la imagen de referencia: card con cabecera (avatar/punto + 2 líneas), bloque grande y 3 puntos abajo, con barrido shimmer (`skel-sweep` 1.4s) + pulso en puntos. Variante gris en tema claro (`.theme-light .skel`), sin animación con `prefers-reduced-motion`. Todo `aria-hidden` dentro de contenedores `role=status` + `aria-label` ("Cargando…").
+- `useDelayedVisible(active, delay)`: `setTimeout` en `useEffect`; solo muestra el skeleton si la carga persiste tras el retardo. Retardos mínimos anti-flash: **150ms** páginas (boot/historial/perfil/día, default del hook), **100ms** series inline (gesto del usuario). El retardo NO retrasa los datos: el contenido real se pinta en cuanto llega; home (datos locales) no usa skeleton.
+- Regla anti-parpadeo "datos → vacío → datos": skeletons y textos de carga (`…`, "Cargando…", "Calculando…") solo aparecen **sin datos previos**; en refetch se conserva lo visible (stale-while-revalidate). `SetsSkeleton` inline en sesión expandida; `DaySkeleton` con `rows = exercises.length`.
+- Nota lint: `oxlint` avisa `react(set-state-in-effect)` en el hook (patrón estándar de retardo, solo warning); resto de warnings preexistentes (`ThemeToggle`/`profileLoading`/`handleBodyKg` sin uso, `DATASET_REPO`, `ActiveWorkout`, `dayWeights` en deps).
 
 ## 6. Cómo extender (pistas rápidas)
 

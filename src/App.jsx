@@ -2,6 +2,8 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from './supabaseClient.js'
 import ExerciseItem from './components/ExerciseItem.jsx'
 import BottomNav from './components/BottomNav.jsx'
+import { BootSkeleton, DaySkeleton, HistorySkeleton, ProfileSkeleton, SetsSkeleton } from './components/Skeleton.jsx'
+import { useDelayedVisible } from './hooks/useDelayedVisible.js'
 import { getExerciseBundle } from './services/exercisesApi.js'
 import { ensureDayRows, fetchLastWeights, fetchRecentLogs, saveDaySession } from './services/planSync.js'
 
@@ -1055,6 +1057,9 @@ const OnboardingModal = memo(function OnboardingModal({ form, setForm, unit, onS
 
 function App() {
 	const [session, setSession] = useState(null)
+	// Arranque de auth: mientras se resuelve getSession no se sabe si hay
+	// usuario. Sin esto la pantalla de login parpadea antes de entrar.
+	const [authChecking, setAuthChecking] = useState(true)
 	const [selectedDay, setSelectedDay] = useState(null)
 	// Contenido de la semana (rutina/descanso por día, Lun..Dom fijos).
 	// Solo lista. Clave antigua `tempolift-week-order-*` ignorada a propósito:
@@ -1180,6 +1185,23 @@ function App() {
 	const progress = totalExercises ? doneCount / totalExercises : 0
 	const allDone = totalExercises > 0 && doneCount === totalExercises
 	const missingLabels = [!warmupDone && 'calentamiento', !cardioDone && 'cardio'].filter(Boolean)
+
+	// Skeletons con retardo mínimo: solo aparecen si la carga tarda (>150ms
+	// en páginas, >100ms en series inline). El retardo NO retrasa los datos:
+	// el contenido real se muestra en cuanto llega; solo evita flashear el
+	// skeleton en cargas rápidas. Si ya hay datos se conservan
+	// (stale-while-revalidate) y nunca se reemplazan por el skeleton.
+	const bootVisible = useDelayedVisible(authChecking, 150)
+	const historyHasData = sbSessions.some((s) => s.ended_at)
+	const historyPending = sbLoading && !historyHasData
+	const showHistorySkel = useDelayedVisible(historyPending, 150)
+	const openRows = openSession ? (sessionSets[openSession] ?? []) : []
+	const setsPending = setsLoading && openSession != null && openRows.length === 0
+	const showSetsSkel = useDelayedVisible(setsPending, 100)
+	const profilePending = (sbLoading || statsLoading) && statsRows.length === 0
+	const showProfileSkel = useDelayedVisible(profilePending, 150)
+	const dayPending = selectedDay != null && !planIds
+	const showDaySkel = useDelayedVisible(dayPending, 150)
 
 	const togglePhase = useCallback((phase) => {
 		setOpenPhase((current) => (current === phase ? '' : phase))
@@ -1801,9 +1823,13 @@ function App() {
 	useEffect(() => {
 		supabase.auth.getSession().then(({ data: { session } }) => {
 			setSession(session)
+			setAuthChecking(false)
+		}).catch(() => {
+			setAuthChecking(false)
 		})
 		const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
 			setSession(session)
+			setAuthChecking(false)
 		})
 		return () => subscription.unsubscribe()
 	}, [])
@@ -2063,6 +2089,18 @@ function App() {
 		window.scrollTo(0, 0)
 	}, [selectedDay, currentView])
 
+	if (authChecking) {
+		// Arranque: si resuelve rápido no se muestra nada (ni login ni
+		// skeleton) para evitar el flash. Solo con latencia aparece el
+		// skeleton tras ~150ms.
+		if (!bootVisible) {
+			return (
+				<main className={`theme-${theme} app-shell mx-auto min-h-screen max-w-lg px-5 pb-28`} style={{ backgroundColor: '#0b0d0c' }} aria-busy="true" aria-label="Cargando TempoLift" />
+			)
+		}
+		return <BootSkeleton theme={theme} />
+	}
+
 	if (!session) {
 		return (
 			<main className={`screen-enter theme-${theme} app-shell mx-auto min-h-screen max-w-lg px-5 pb-10 text-white`} style={{ backgroundColor: '#0b0d0c' }}>
@@ -2092,12 +2130,9 @@ function App() {
 			<>
 				<main className={`screen-enter theme-${theme} app-shell mx-auto min-h-screen max-w-lg px-5 pb-28 text-white`}>
 				<BackgroundOrbs />
-				<header className="relative z-10 flex items-center justify-between py-6">
+				<header className="relative z-10 flex items-center justify-start py-6">
 					<button type="button" onClick={goBack} className="back-btn flex min-h-12 items-center gap-2 text-sm font-bold uppercase tracking-widest text-zinc-400" aria-label="Volver a los días">
 						<span className="text-2xl leading-none text-red-500">‹</span> Días
-					</button>
-					<button type="button" onClick={signOut} className="flex min-h-10 items-center rounded-xl border border-white/10 px-3 text-[11px] font-bold uppercase tracking-widest text-zinc-500 transition hover:border-white/25 hover:text-zinc-300">
-						Cerrar sesión
 					</button>
 				</header>
 				<div className="relative z-10 mb-6">
@@ -2151,6 +2186,11 @@ function App() {
 					</div>
 				)}
 
+				{showDaySkel ? (
+					<div className="relative z-10" aria-busy="true">
+						<DaySkeleton rows={selectedWorkout.exercises.length} />
+					</div>
+				) : (
 				<div className="routine-card glass-card relative z-10 rounded-2xl px-5">
 					<Phase phase={globalPhases.warmup} open={openPhase === 'warmup'} onToggle={() => togglePhase('warmup')}>
 						<div className="glass-inset rounded-xl p-4 text-base text-zinc-300">{globalPhases.warmup.notes}</div>
@@ -2243,6 +2283,7 @@ function App() {
 						</div>
 					</Phase>
 				</div>
+				)}
 				<p className="relative z-10 mt-6 text-center text-xs uppercase tracking-widest text-zinc-600">Escucha tu cuerpo · Mantén el control</p>
 				</main>
 				{weightModal && (
@@ -2430,7 +2471,10 @@ function App() {
 					)
 				})()}
 				<Snackbar snack={snack} onClose={closeSnack} />
-				<BottomNav value={currentView} onChange={handleNav} theme={theme} />
+				{/* En rutina del día ninguna pestaña va activa: el detalle no es
+				Inicio/Historial/Perfil, así que value={null} deja el navbar sin
+				marcar (sin aria-current). Al tocar una pestaña, handleNav cierra el día. */}
+				<BottomNav value={null} onChange={handleNav} theme={theme} />
 				{showOnboarding && (
 					<OnboardingModal
 						form={onboarding}
@@ -2460,11 +2504,14 @@ function App() {
 				</header>
 				<div className="relative z-10">
 					{currentView === 'history' && (
-						<section className="glass-card rounded-2xl p-5">
+						showHistorySkel ? (
+							<HistorySkeleton />
+						) : (
+						<section className="glass-card rounded-2xl p-5" aria-busy={sbLoading}>
 							<h1 className="text-2xl font-black">Historial</h1>
-							<p className="mt-1 text-sm text-zinc-400">{sbLoading ? 'Cargando…' : sbSessions.filter((s) => s.ended_at).length === 0 ? '0 entrenamientos' : `${sbSessions.filter((s) => s.ended_at).length} ${sbSessions.filter((s) => s.ended_at).length === 1 ? 'entrenamiento' : 'entrenamientos'}`}</p>
+							<p className="mt-1 text-sm text-zinc-400">{historyHasData ? `${sbSessions.filter((s) => s.ended_at).length} ${sbSessions.filter((s) => s.ended_at).length === 1 ? 'entrenamiento' : 'entrenamientos'}` : (sbLoading ? 'Cargando…' : '0 entrenamientos')}</p>
 							<div className="mt-4 flex flex-col gap-2">
-								{sbSessions.filter((s) => s.ended_at).length === 0 && !sbLoading && (
+								{!historyHasData && !sbLoading && (
 									<p className="text-sm text-zinc-500">Aún no tienes entrenamientos terminados. Completa tu primera rutina para verla aquí.</p>
 								)}
 								{sbSessions.filter((s) => s.ended_at).map((s) => {
@@ -2485,7 +2532,9 @@ function App() {
 											</button>
 											{open && (
 												<div className="mt-3 border-t border-white/10 pt-3">
-													{setsLoading && rows.length === 0 ? (
+													{(s.id === openSession && showSetsSkel) ? (
+														<SetsSkeleton />
+													) : setsLoading && rows.length === 0 ? (
 														<p className="text-sm text-zinc-500">Cargando series…</p>
 													) : rows.length === 0 ? (
 														<p className="text-sm text-zinc-500">Sin series registradas.</p>
@@ -2557,8 +2606,12 @@ function App() {
 								})}
 							</div>
 						</section>
+						)
 					)}
 					{currentView === 'profile' && (() => {
+						// Carga inicial con latencia: skeleton estilo imagen.
+						// En refetch con datos ya visibles no se usa (stale-while-revalidate).
+						if (showProfileSkel) return <ProfileSkeleton />
 						const finished = sbSessions.filter((s) => s.ended_at)
 						const last = finished[0]
 						const email = session.user?.email ?? ''
@@ -2581,28 +2634,28 @@ function App() {
 									<h1 className="mt-3 text-xl font-black">Mi perfil</h1>
 									<p className="mt-1 break-all text-sm text-zinc-400">{email || session.user?.id}</p>
 								</section>
-								<section className="glass-card rounded-2xl p-5">
+								<section className="glass-card rounded-2xl p-5" aria-busy={sbLoading || statsLoading}>
 									<h2 className="text-xs font-bold uppercase tracking-widest text-zinc-500">Stats · últimas 20 sesiones</h2>
 									<div className="mt-3 grid grid-cols-4 gap-2 text-center">
 										<div className="glass-inset rounded-xl px-1 py-3">
-											<p className="text-xl font-black text-white">{sbLoading ? '…' : finished.length}</p>
+											<p className="text-xl font-black text-white">{sbLoading && finished.length === 0 ? '…' : finished.length}</p>
 											<p className="mt-1 text-[9px] font-bold uppercase tracking-widest text-zinc-500">Sesiones</p>
 										</div>
 										<div className="glass-inset rounded-xl px-1 py-3">
-											<p className="text-xl font-black text-white">{statsLoading ? '…' : Math.round(statsRows.reduce((a, r) => a + r.totalKcal, 0)).toLocaleString()}</p>
+											<p className="text-xl font-black text-white">{statsLoading && statsRows.length === 0 ? '…' : Math.round(statsRows.reduce((a, r) => a + r.totalKcal, 0)).toLocaleString()}</p>
 											<p className="mt-1 text-[9px] font-bold uppercase tracking-widest text-zinc-500">Kcal tot.</p>
 										</div>
 										<div className="glass-inset rounded-xl px-1 py-3">
-											<p className="text-xl font-black text-white">{statsLoading || statsRows.length === 0 ? '…' : Math.round(statsRows.reduce((a, r) => a + r.totalKcal, 0) / statsRows.length)}</p>
+											<p className="text-xl font-black text-white">{statsLoading && statsRows.length === 0 ? '…' : (statsRows.length === 0 ? '0' : Math.round(statsRows.reduce((a, r) => a + r.totalKcal, 0) / statsRows.length))}</p>
 											<p className="mt-1 text-[9px] font-bold uppercase tracking-widest text-zinc-500">Kcal/ses.</p>
 										</div>
 										<div className="glass-inset rounded-xl px-1 py-3">
-											<p className="text-xl font-black text-white">{sbLoading ? '…' : dayStreak(finished.map((s) => s.started_at))}</p>
+											<p className="text-xl font-black text-white">{sbLoading && finished.length === 0 ? '…' : dayStreak(finished.map((s) => s.started_at))}</p>
 											<p className="mt-1 text-[9px] font-bold uppercase tracking-widest text-zinc-500">Racha días</p>
 										</div>
 									</div>
 									<p className="mt-3 text-xs leading-relaxed text-zinc-500">
-										{sbLoading ? 'Cargando tu actividad…' : last ? `Último entreno: ${new Date(last.started_at).toLocaleString()}` : 'Completa tu primera rutina y aparecerá aquí.'}
+										{sbLoading && finished.length === 0 ? 'Cargando tu actividad…' : last ? `Último entreno: ${new Date(last.started_at).toLocaleString()}` : 'Completa tu primera rutina y aparecerá aquí.'}
 									</p>
 								</section>
 								<section className="glass-card rounded-2xl p-5">
@@ -2645,12 +2698,14 @@ function App() {
 								</section>
 								<section className="glass-card rounded-2xl p-5">
 									<h2 className="text-xs font-bold uppercase tracking-widest text-zinc-500">Gráficas</h2>
-									{statsLoading ? (
-										<p className="mt-3 text-sm text-zinc-500">Calculando tus stats…</p>
-									) : statsError ? (
+									{statsError ? (
 										<p className="mt-3 text-sm text-red-400">No se pudieron cargar: {statsError}</p>
 									) : chartData.length === 0 ? (
+										statsLoading ? (
+										<p className="mt-3 text-sm text-zinc-500">Calculando tus stats…</p>
+										) : (
 										<p className="mt-3 text-sm text-zinc-500">Sin sesiones terminadas todavía. Tus gráficas aparecen aquí.</p>
+										)
 									) : (
 									<div className="mt-3 flex flex-col gap-5">
 										<div>
@@ -2974,18 +3029,18 @@ function App() {
 			)}
 			<Snackbar snack={snack} onClose={closeSnack} />
 			<BottomNav value={currentView} onChange={handleNav} theme={theme} />
-				{showOnboarding && (
-					<OnboardingModal
-						form={onboarding}
-						setForm={setOnboarding}
-						unit={weightUnit}
-						onSwitchUnit={switchWeightUnit}
-						error={onboardingError}
-						saving={onboardingSaving}
-						onSubmit={submitOnboarding}
-						onSkip={() => setShowOnboarding(false)}
-					/>
-				)}
+			{showOnboarding && (
+				<OnboardingModal
+					form={onboarding}
+					setForm={setOnboarding}
+					unit={weightUnit}
+					onSwitchUnit={switchWeightUnit}
+					error={onboardingError}
+					saving={onboardingSaving}
+					onSubmit={submitOnboarding}
+					onSkip={() => setShowOnboarding(false)}
+				/>
+			)}
 		</>
 	)
 }

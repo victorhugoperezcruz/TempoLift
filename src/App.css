@@ -2183,6 +2183,22 @@ button.day-row:active {
   width: 100%;
 }
 
+/* La lista es absolute con z-60, pero cada .glass-card crea su propio
+   stacking context (backdrop-filter). Como "Mis datos" va antes que
+   "Apariencia" en el DOM, la lista quedaba pintada por detrás de la
+   card siguiente. Al abrir, se eleva el select y su card contenedora
+   por encima de las hermanas siguientes. */
+.custom-select.open {
+  position: relative;
+  z-index: 40;
+}
+
+.glass-card:has(.custom-select.open):not(.modal-card) {
+  position: relative;
+  z-index: 30;
+  overflow: visible;
+}
+
 .custom-select-btn {
   display: flex;
   align-items: center;
@@ -2364,5 +2380,159 @@ button.day-row:active {
   }
   .custom-select-chevron {
     transition: none;
+  }
+}
+
+/* ============ Skeleton screens (carga con latencia) ============ */
+/* Como la imagen: card con cabecera (punto + líneas), bloque grande
+   y puntos abajo, con barrido de brillo. Solo se muestra tras ~350ms
+   de carga real (ver useDelayedVisible) para no parpadear en cargas
+   rápidas. Respeta tema claro/oscuro y reduced-motion. */
+.skel {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  min-height: 12px;
+}
+
+.skel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22), transparent);
+  animation: skel-sweep 1.4s ease-in-out infinite;
+}
+
+.skel-line {
+  height: 12px;
+  max-width: 100%;
+}
+
+.skel-line-sm {
+  height: 10px;
+  opacity: 0.75;
+}
+
+.skel-title {
+  height: 20px;
+  border-radius: 10px;
+  max-width: 100%;
+}
+
+.skel-block {
+  height: 120px;
+  border-radius: 14px;
+  margin-top: 14px;
+}
+
+.skel-block-sm {
+  height: 72px;
+  border-radius: 12px;
+  margin-top: 12px;
+}
+
+.skel-avatar {
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+
+.skel-avatar-lg {
+  width: 56px;
+  height: 56px;
+  min-height: 56px;
+}
+
+.skel-badge {
+  width: 48px;
+  height: 48px;
+  min-height: 48px;
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+
+.skel-check {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.skel-progress {
+  height: 8px;
+  border-radius: 999px;
+  margin-top: 4px;
+}
+
+.skel-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.skel-dot {
+  width: 8px;
+  height: 8px;
+  min-height: 8px;
+  border-radius: 9999px;
+  animation: skel-pulse 1.4s ease-in-out infinite;
+}
+
+.skel-dots .skel-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.skel-dots .skel-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.skel-dot::after {
+  animation: none;
+}
+
+@keyframes skel-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  60%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes skel-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Tema claro: esqueleto gris como la imagen de referencia */
+.theme-light .skel {
+  background: rgba(24, 32, 25, 0.1);
+}
+
+.theme-light .skel::after {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.85), transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skel::after {
+    animation: none;
+  }
+  .skel-dot {
+    animation: none;
+    opacity: 0.7;
   }
 }
