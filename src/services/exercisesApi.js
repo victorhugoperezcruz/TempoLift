@@ -125,9 +125,6 @@ const MEDIA = {
     'De pie ante la polea alta, codos pegados al torso. Empuja la barra abajo hasta extender, aprieta abajo y sube lento.',
     ['Codos pegados al torso, torso quieto.', 'Empuja abajo hasta extender.', 'Aprieta abajo y sube lento.']),
   '0241': E('0241', 'cable triceps pushdown (v-bar)', 'cable', 'triceps', 'upper arms', 'gAwDzB3', 'Pushdown con agarre en V para la cabeza lateral del tríceps.', []),
-  '1421': E('1421', 'modified push up to lower arms', 'body weight', 'forearms', 'lower arms', 'arvaszz', 'Apoyo de antebrazos en el suelo para fuerza de agarre y antebrazo.', []),
-  '0721': E('0721', 'side wrist pull stretch', 'body weight', 'forearms', 'lower arms', 'UtmIqcI', 'Estiramiento y activación de muñeca y antebrazo.', []),
-  '1428': E('1428', 'wrist circles', 'body weight', 'forearms', 'lower arms', '2zNKRUB', 'Círculos de muñeca para movilidad y bombeo de antebrazo.', []),
   // ——— Variantes con mancuerna: solo donde trabajan la misma zona ———
   '0314': E('0314', 'dumbbell incline bench press', 'dumbbell', 'pectorals', 'chest', 'ns0SIbU', 'Press inclinado con mancuernas: más recorrido y trabajo unilateral de cada lado del pecho.',
     ['Banco inclinado con una mancuerna en cada mano.', 'Baja hasta que los codos queden a 90 grados.', 'Empuja arriba sin chocar las mancuernas.']),
@@ -153,9 +150,6 @@ const MEDIA = {
     ['Torso inclinado con el codo fijo atrás.', 'Extiende atrás apretando el tríceps.', 'Vuelve lento sin mover el hombro.']),
   '1760': E('1760', 'dumbbell goblet squat', 'dumbbell', 'quads', 'upper legs', 'yn8yg1r', 'Sentadilla goblet con mancuerna al pecho como empuje de pierna libre.',
     ['Mancuerna al pecho, pies al ancho de hombros.', 'Baja hasta muslos casi paralelos.', 'Empuja con los talones y sube.']),
-  hang: { id: 'hang', name: 'dead hang', equipment: 'body weight', target: 'forearms', bodyPart: 'lower arms', gif: null, image: null,
-    es: 'Cuélgate con agarre prono, brazos extendidos y hombros activos (lejos de las orejas). Core apretado, sin balanceo. Aguanta el tiempo y baja con control.',
-    steps: ['Agarre prono con brazos extendidos.', 'Hombros activos lejos de las orejas.', 'Core apretado, aguanta sin balancearte.'] },
 }
 
 // Por ejercicio del plan: variante principal + carrusel de alternativas.
@@ -178,7 +172,7 @@ const BUNDLES = {
   'Curl predicador': { primary: '0372', variants: ['0372', '0592', '1614', '0575', '0070'] },
   'Tríceps en polea': { primary: '0333', variants: ['0333', '0201', '0241', '0607', '1451'] },
   'Curl martillo': { primary: '0313', variants: ['0313', '1615', '0575', '0592'] },
-  'Colgado en barra': { primary: 'hang', variants: ['hang', '1421', '0721', '1428'] },
+  'Curl de bíceps en máquina': { primary: '0575', variants: ['0575', '0592', '1614', '1615', '0372', '0070'] },
   'Curl de isquiosurales sentado': { primary: '0599', variants: ['0599', '0586', '0582'] },
   'Patada de glúteo': { primary: '2286', variants: ['2286', '0593', '0578', '0228', '0739'] },
 }

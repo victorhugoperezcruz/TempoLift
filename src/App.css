@@ -534,6 +534,94 @@
   backdrop-filter: blur(18px) saturate(170%);
 }
 
+/* ============ Home: lista de días glassy ============ */
+/* Filas como celdas de vidrio separadas (en vez de lista plana con divide),
+   con entrada escalonada por --d, hover con desliz y badge con relieve. */
+.day-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+
+.day-row {
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02));
+  -webkit-backdrop-filter: blur(18px) saturate(170%);
+  backdrop-filter: blur(18px) saturate(170%);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  animation: calendar-item 420ms var(--spring, cubic-bezier(.22, 1, .36, 1)) backwards;
+  animation-delay: var(--d, 0ms);
+  transition-property: background-color, border-color, box-shadow, transform;
+  transition-duration: 300ms;
+  transition-timing-function: var(--spring, cubic-bezier(.22, 1, .36, 1));
+}
+
+button.day-row:hover {
+  transform: translateX(4px);
+  border-color: rgba(255, 45, 45, 0.35);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 45, 45, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+button.day-row:active {
+  transform: scale(0.98);
+}
+
+.day-row.is-rest {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.02);
+  box-shadow: none;
+  opacity: 0.65;
+}
+
+.day-badge {
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+/* Mini-progreso del día dentro de la fila */
+.day-progress {
+  display: block;
+  height: 4px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.day-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #ef4444, #f87171);
+  transition: width 500ms var(--spring, cubic-bezier(.22, 1, .36, 1));
+}
+
+.day-progress.done > span {
+  background: linear-gradient(90deg, #22c55e, #4ade80);
+}
+
+.theme-light .day-row {
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.6));
+  border-color: rgba(24, 32, 25, 0.1);
+  box-shadow: 0 4px 20px rgba(24, 32, 25, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.theme-light button.day-row:hover {
+  border-color: rgba(220, 38, 38, 0.4);
+  box-shadow: 0 6px 24px rgba(24, 32, 25, 0.14), 0 0 0 1px rgba(220, 38, 38, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.theme-light .day-row.is-rest {
+  background: rgba(24, 32, 25, 0.03);
+  border-color: rgba(24, 32, 25, 0.12);
+  box-shadow: none;
+}
+
+.theme-light .day-progress {
+  background: rgba(24, 32, 25, 0.1);
+}
+
 .logo-glass {
   box-shadow: 0 4px 20px rgba(255, 45, 45, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.35) !important;
 }
@@ -1381,9 +1469,27 @@
   color: #879186 !important;
 }
 
-.theme-light .custom-check {
+.theme-light .custom-check:not(.checked):not(.partial) {
   background: rgba(255, 255, 255, 0.7) !important;
   border-color: rgba(24, 32, 25, 0.18) !important;
+}
+
+/* En claro el fill también debe verse: la paloma es blanca sobre verde/ámbar. */
+.theme-light .custom-check.checked {
+  background: linear-gradient(135deg, #22c55e, #16a34a) !important;
+  border-color: #16a34a !important;
+  box-shadow: 0 4px 16px rgba(34, 197, 94, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.35) !important;
+}
+
+.theme-light .custom-check.partial {
+  background: linear-gradient(135deg, #f59e0b, #d97706) !important;
+  border-color: #d97706 !important;
+  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.35) !important;
+}
+
+.theme-light .custom-check.checked .check-svg path,
+.theme-light .custom-check.partial .check-svg path {
+  stroke: #fff;
 }
 
 .theme-light .exercise-reps,
@@ -1969,6 +2075,106 @@
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.75)) !important;
   box-shadow: 0 8px 32px rgba(24, 32, 25, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
   border-color: rgba(24, 32, 25, 0.1) !important;
+}
+
+/* ============ Snackbar de avisos ============ */
+/* Toast glassy sobre los modales (z-60) y la navbar: misma posición fija que
+   BottomNav/RestPill porque vive fuera del <main> animado. */
+.snackbar {
+  left: 50% !important;
+  bottom: calc(max(0.75rem, env(safe-area-inset-bottom)) + 84px) !important;
+  transform: translateX(-50%) !important;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: calc(100% - 2rem) !important;
+  max-width: 28rem !important;
+  padding: 12px 14px !important;
+  border-radius: 14px !important;
+  background: rgba(20, 14, 14, 0.94) !important;
+  border: 1px solid rgba(248, 113, 113, 0.45) !important;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+  animation: snackbar-in 320ms var(--spring, cubic-bezier(.22, 1, .36, 1)) both;
+}
+
+.snackbar p {
+  flex: 1;
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #fecaca;
+}
+
+.snackbar-dot {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  background: #f87171;
+  box-shadow: 0 0 12px rgba(248, 113, 113, 0.8);
+}
+
+.snackbar.warn {
+  border-color: rgba(251, 191, 36, 0.45) !important;
+}
+
+.snackbar.warn p {
+  color: #fde68a;
+}
+
+.snackbar.warn .snackbar-dot {
+  background: #fbbf24;
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.8);
+}
+
+.snackbar-close {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  font-size: 1.1rem;
+  line-height: 1;
+  color: #a1a1aa;
+  transition: background-color 200ms, color 200ms;
+}
+
+.snackbar-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+@keyframes snackbar-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+/* ============ Modales: scroll interno, fondo quieto, teclado móvil ============ */
+/* El overlay (overflow-y-auto + overscroll-contain) absorbe el scroll y la
+   card centra con m-auto: si es más alta que el viewport (pantalla pequeña
+   o teclado abierto) hace scroll ella sola, nunca la página de atrás
+   (que además se bloquea con body{overflow:hidden} desde App.jsx). */
+.modal-card {
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 640px) {
+  /* Inputs a 16px en móvil: iOS hace zoom automático al enfocar inputs
+     menores de 16px y rompe el layout del modal. */
+  .modal-card input {
+    font-size: 16px;
+  }
 }
 
 /* ============ Combobox personalizado (reemplaza <select> vanilla) ============ */

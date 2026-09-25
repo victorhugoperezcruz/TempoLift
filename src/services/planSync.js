@@ -93,6 +93,27 @@ export async function fetchLastWeights(supabase, userId, exerciseIds) {
 	return map
 }
 
+// Últimas series por ejercicio (para el historial del acordeón).
+// Devuelve { [exercise_id]: [{ weight_kg, reps, set_number, created_at }] }
+// en orden reciente → antiguo, recortado a `perExercise` por ejercicio.
+export async function fetchRecentLogs(supabase, userId, exerciseIds, perExercise = 4) {
+	if (exerciseIds.length === 0) return {}
+	const { data, error } = await supabase
+		.from('set_logs')
+		.select('exercise_id, set_number, weight_kg, reps, created_at')
+		.eq('user_id', userId)
+		.in('exercise_id', exerciseIds)
+		.order('created_at', { ascending: false })
+		.limit(Math.max(20, exerciseIds.length * perExercise * 2))
+	if (error) throw error
+	const map = {}
+	for (const row of data ?? []) {
+		const list = map[row.exercise_id] ?? (map[row.exercise_id] = [])
+		if (list.length < perExercise) list.push(row)
+	}
+	return map
+}
+
 export async function saveDaySession(supabase, userId, routineId, byIndex, weights, startedAt, extras = null) {
 	const notes = extras
 		? JSON.stringify({

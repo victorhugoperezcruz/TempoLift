@@ -3,7 +3,7 @@ import { supabase } from './supabaseClient.js'
 import ExerciseItem from './components/ExerciseItem.jsx'
 import BottomNav from './components/BottomNav.jsx'
 import { getExerciseBundle } from './services/exercisesApi.js'
-import { ensureDayRows, fetchLastWeights, parseTargetReps, saveDaySession } from './services/planSync.js'
+import { ensureDayRows, fetchLastWeights, fetchRecentLogs, saveDaySession } from './services/planSync.js'
 
 const globalPhases = {
 	warmup: {
@@ -65,7 +65,7 @@ const workoutDays = [
 			['Curl predicador', '2 x 10', 'Tempo 3-1-1'],
 			['Tríceps en polea', '2 x 10', 'Aprieta abajo'],
 			['Curl martillo', '2 x 10', 'Agarre neutro'],
-			['Colgado en barra', '2 x al fallo', 'Antebrazo'],
+			['Curl de bíceps en máquina', '2 x 10', 'Tempo 3-1-1'],
 		],
 	},
 	{
@@ -94,6 +94,36 @@ const workoutDays = [
 			['Elevaciones laterales', '2 x 12', 'Tempo 3-1-1'],
 		],
 	},
+	{
+		id: 6,
+		name: 'Cuerpo completo A',
+		focus: 'Full body: pecho, espalda, pierna y brazo',
+		accent: 'bg-emerald-300',
+		exercises: [
+			['Press inclinado', '2 x 8', 'Tempo 3-1-1'],
+			['Remo en T', '2 x 8-10', 'Tempo 3-1-1'],
+			['Prensa de piernas', '2 x 10', 'Pies altos'],
+			['Press militar', '2 x 8', 'Tempo 3-1-1'],
+			['Curl predicador', '2 x 10', 'Tempo 3-1-1'],
+			['Tríceps en polea', '2 x 10', 'Aprieta abajo'],
+			['Biserie de pantorrillas', '2 x 12 + 2 x 12', 'De pie + sentado'],
+		],
+	},
+	{
+		id: 7,
+		name: 'Cuerpo completo B',
+		focus: 'Full body: torso, glúteo e isquios',
+		accent: 'bg-teal-300',
+		exercises: [
+			['Press plano', '2 x 8', 'Tempo 3-1-1'],
+			['Jalón a pecho', '2 x 8-10', 'Tempo 3-1-1'],
+			['Patada de glúteo', '2 x 10 por pierna', 'Una pierna a la vez'],
+			['Curl de isquiosurales sentado', '2 x 10-12', 'Tempo 3-1-1'],
+			['Elevaciones laterales', '2 x 12', 'Tempo 3-1-1'],
+			['Curl martillo', '2 x 10', 'Agarre neutro'],
+			['Máquina de abductores', '2 x 12', 'Tempo 3-1-1'],
+		],
+	},
 ]
 
 const weekSchedule = [
@@ -106,6 +136,129 @@ const weekSchedule = [
 	{ day: 'Dom', fullDay: 'Domingo', workoutId: 5 },
 ]
 
+// Contenido por defecto de la semana: un slot por día en orden Lun..Dom.
+// Cada slot es { workoutId } o { rest: true }. Los DÍAS son fijos (una semana
+// siempre es Lun-Dom); lo que el usuario mueve es el CONTENIDO (la rutina o
+// el descanso) de un día a otro. Así son imposibles semanas como Dom,Jue,Lun…
+const DEFAULT_WEEK_MAP = [
+	{ rest: true },
+	{ rest: true },
+	{ workoutId: 1 },
+	{ workoutId: 2 },
+	{ workoutId: 3 },
+	{ workoutId: 4 },
+	{ workoutId: 5 },
+]
+
+// Plan según la meta semanal: qué días (índices Lun=0..Dom=6) se entrena y con
+// qué rutina, priorizando que cada parte del cuerpo se trabaje en la semana.
+// Pocos días → full-body A/B; 4-5 días → rutinas enfocadas; 6-7 → todo + extra.
+const TRAINING_DAYS_BY_GOAL = {
+	1: [3],
+	2: [2, 5],
+	3: [1, 3, 5],
+	4: [0, 1, 3, 4],
+	5: [2, 3, 4, 5, 6],
+	6: [0, 1, 2, 4, 5, 6],
+	7: [0, 1, 2, 3, 4, 5, 6],
+}
+
+const ROUTINES_BY_GOAL = {
+	1: [6],
+	2: [6, 7],
+	3: [6, 4, 3],
+	4: [1, 2, 3, 4],
+	5: [1, 2, 3, 4, 5],
+	6: [1, 2, 3, 4, 5, 6],
+	7: [1, 2, 3, 4, 5, 6, 7],
+}
+
+// Construye el mapa semanal para una meta (descanso donde no toca entrenar).
+function buildWeekMapForGoal(goal) {
+	const days = TRAINING_DAYS_BY_GOAL[goal] ?? TRAINING_DAYS_BY_GOAL[5]
+	const routines = ROUTINES_BY_GOAL[goal] ?? ROUTINES_BY_GOAL[5]
+	return weekSchedule.map((_, i) => {
+		const pos = days.indexOf(i)
+		return pos === -1 ? { rest: true } : { workoutId: routines[pos] }
+	})
+}
+
+function weekMapKey(userId) {
+	return userId ? `tempolift-week-map-${userId}` : 'tempolift-week-map'
+}
+
+function sameSlot(a, b) {
+	if (!a || !b) return false
+	if (a.rest || b.rest) return Boolean(a.rest && b.rest)
+	return a.workoutId === b.workoutId
+}
+
+// Lee el mapa guardado de ese usuario. null si no hay o si es inválido
+// (longitud distinta, rutinas duplicadas o desconocidas): así un cambio del
+// plan no rompe nada y nunca hay semanas imposibles.
+function readWeekMap(userId) {
+	try {
+		const raw = localStorage.getItem(weekMapKey(userId))
+		if (!raw) return null
+		const arr = JSON.parse(raw)
+		if (!Array.isArray(arr) || arr.length !== weekSchedule.length) return null
+		const validIds = new Set(workoutDays.map((w) => w.id))
+		const seen = new Set()
+		for (const s of arr) {
+			if (!s || typeof s !== 'object') return null
+			if (s.rest) continue
+			if (!validIds.has(s.workoutId) || seen.has(s.workoutId)) return null
+			seen.add(s.workoutId)
+		}
+		return arr.map((s) => (s.rest ? { rest: true } : { workoutId: s.workoutId }))
+	} catch {
+		return null
+	}
+}
+
+function persistWeekMap(userId, map) {
+	try {
+		localStorage.setItem(weekMapKey(userId), JSON.stringify(map))
+	} catch {
+		// sin localStorage: el orden vive solo en memoria
+	}
+}
+
+// Meta semanal de sesiones (1 a 7, por defecto 5): alimenta la gráfica de
+// constancia y la sección Meta semanal del perfil. Por usuario, sin migración.
+function weekGoalKey(userId) {
+	return userId ? `tempolift-week-goal-${userId}` : 'tempolift-week-goal'
+}
+
+function readWeekGoal(userId) {
+	try {
+		const v = parseInt(localStorage.getItem(weekGoalKey(userId)), 10)
+		if (Number.isFinite(v)) return Math.min(7, Math.max(1, v))
+	} catch {
+		// sin localStorage: usa el valor por defecto
+	}
+	return 5
+}
+
+function persistWeekGoal(userId, value) {
+	try {
+		localStorage.setItem(weekGoalKey(userId), String(value))
+	} catch {
+		// sin localStorage: la meta vive solo en memoria
+	}
+}
+
+// Consejo según la meta elegida (sin emojis): orienta sin obligar.
+function weekGoalTip(goal) {
+	if (goal <= 1) return 'Un día es mejor que ninguno, pero tu cuerpo puede con más: prueba subir a 2 o 3 cuando te sientas listo.'
+	if (goal === 2) return 'Buen punto de partida. Con 3 días a la semana el progreso se nota más rápido.'
+	if (goal === 3) return 'Meta equilibrada: constancia sin quemarte. Ideal si vienes retomando.'
+	if (goal === 4) return 'Ritmo sólido, a un paso del plan completo.'
+	if (goal === 5) return 'El plan completo: así se construye la constancia semana a semana.'
+	if (goal === 6) return 'Nivel exigente: cuida el sueño y la comida para sostenerlo.'
+	return 'Cuidado: el cuerpo necesita descansar para crecer. Entrenar los 7 días sin pausa lleva al sobreentrenamiento.'
+}
+
 const REST_SECONDS = 120
 
 function formatRest(total) {
@@ -113,6 +266,12 @@ function formatRest(total) {
 	const s = total % 60
 	return `${m}:${String(s).padStart(2, '0')}`
 }
+
+// Autofoco solo con puntero fino: en táctil abriría el teclado de golpe
+// tapando medio modal. Se usa como autoFocus={FINE_POINTER}.
+const FINE_POINTER = typeof window !== 'undefined'
+	&& typeof window.matchMedia === 'function'
+	&& window.matchMedia('(pointer: fine)').matches
 
 // Muestra un aviso legible. El detalle técnico solo se imprime en desarrollo:
 // en producción la consola queda limpia (nada de errores ni código interno).
@@ -244,6 +403,39 @@ function convertInputUnit(cur, from, to) {
 	return Number.isFinite(lb) ? displayWeight(lb, to) : cur
 }
 
+// Peso de ejemplo realista por ejercicio (lb): solo orienta el placeholder
+// del modal para no sugerir cargas absurdas. No es valor por defecto.
+const WEIGHT_HINTS_LB = {
+	'Press inclinado': 95,
+	'Remo en T': 90,
+	'Press plano': 95,
+	'Jalón a pecho': 100,
+	'Pec Fly': 70,
+	'Jalón unilateral dorsal': 50,
+	'Prensa de piernas': 270,
+	'Extensión de cuádriceps': 90,
+	'Máquina de aductores': 100,
+	'Máquina de abductores': 100,
+	'Biserie de pantorrillas': 90,
+	'Press militar': 70,
+	'Elevaciones laterales': 15,
+	'Skull crushers': 40,
+	'Curl predicador': 45,
+	'Tríceps en polea': 50,
+	'Curl martillo': 25,
+	'Curl de bíceps en máquina': 45,
+	'Curl de isquiosurales sentado': 90,
+	'Patada de glúteo': 40,
+}
+
+function weightHintFor(spanishName, unit) {
+	const lb = WEIGHT_HINTS_LB[spanishName] ?? 45
+	// Redondeado al paso del input (0.5): un hint como 43.1 el navegador lo
+	// rechaza y no debe sugerirse.
+	const raw = unit === 'kg' ? lb / LB_PER_KG : lb
+	return String(Math.round(raw * 2) / 2)
+}
+
 function readTheme() {
 	try {
 		return localStorage.getItem('tempolift-theme') === 'light' ? 'light' : 'dark'
@@ -351,6 +543,37 @@ function dayStreak(startedAtList) {
 	return streak
 }
 
+// Sesiones por semana (lunes a domingo), últimas N semanas, para la
+// gráfica de constancia. Devuelve cronológico con la semana actual al final.
+function sessionsByWeek(startedAtList, weeks = 8) {
+	const counts = new Map()
+	for (const iso of startedAtList) {
+		const t = new Date(iso)
+		if (Number.isNaN(t.getTime())) continue
+		const d = new Date(t.getFullYear(), t.getMonth(), t.getDate())
+		d.setDate(d.getDate() - ((d.getDay() + 6) % 7)) // lunes=0
+		const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+		counts.set(key, (counts.get(key) ?? 0) + 1)
+	}
+	const cursor = new Date()
+	cursor.setHours(0, 0, 0, 0)
+	cursor.setDate(cursor.getDate() - ((cursor.getDay() + 6) % 7))
+	const out = []
+	for (let i = weeks - 1; i >= 0; i -= 1) {
+		const d = new Date(cursor)
+		d.setDate(d.getDate() - i * 7)
+		const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+		out.push({
+			id: key,
+			label: `Sem. ${d.getDate()}/${d.getMonth() + 1}`,
+			short: `${d.getDate()}/${d.getMonth() + 1}`,
+			value: counts.get(key) ?? 0,
+			current: i === 0,
+		})
+	}
+	return out
+}
+
 const Phase = memo(function Phase({ phase, open, onToggle, children }) {
 	return (
 		<section className="border-b border-white/10 last:border-b-0">
@@ -441,6 +664,19 @@ const RestPill = memo(function RestPill({ label, seconds, onReturn, theme = 'dar
 	)
 })
 
+// Flechas para mover el contenido de un día en el modo editar del home.
+// Etiquetas con destino ("Mover Pecho y espalda al Jueves") para que quede
+// claro que se mueve la rutina, no el día.
+const MoveButtons = memo(function MoveButtons({ upLabel, downLabel, canUp, canDown, onMove }) {
+	const base = 'flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 text-sm text-zinc-300 transition hover:border-red-500/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-30'
+	return (
+		<span className="flex shrink-0 flex-col gap-1">
+			<button type="button" onClick={() => onMove(-1)} disabled={!canUp} aria-label={upLabel} title={upLabel} className={base}>↑</button>
+			<button type="button" onClick={() => onMove(1)} disabled={!canDown} aria-label={downLabel} title={downLabel} className={base}>↓</button>
+		</span>
+	)
+})
+
 // Barras apiladas de kcal por sesión (fuerza + cardio + calentamiento). SVG puro, sin dependencias.
 const CalorieBars = memo(function CalorieBars({ data }) {
 	if (data.length === 0) return null
@@ -448,8 +684,10 @@ const CalorieBars = memo(function CalorieBars({ data }) {
 	const H = 170
 	const PAD_L = 34
 	const PAD_B = 20
-	const PAD_T = 12
+	const PAD_T = 24
 	const max = Math.max(1, ...data.map((d) => d.strength + d.cardio + d.warmup))
+	const totals = data.map((d) => d.strength + d.cardio + d.warmup)
+	const avg = totals.reduce((a, v) => a + v, 0) / Math.max(1, totals.length)
 	const innerW = W - PAD_L - 8
 	const innerH = H - PAD_T - PAD_B
 	const slot = innerW / data.length
@@ -465,6 +703,15 @@ const CalorieBars = memo(function CalorieBars({ data }) {
 					</g>
 				)
 			})}
+			{avg > 0 && (() => {
+				const y = PAD_T + innerH * (1 - avg / max)
+				return (
+					<g>
+						<line x1={PAD_L} y1={y} x2={W - 8} y2={y} stroke="#f87171" strokeWidth="1" strokeDasharray="4 3" opacity="0.7" />
+						<text x={W - 8} y={y - 4} textAnchor="end" fontSize="8" fontWeight="700" fill="#f87171">Prom ~{Math.round(avg)}</text>
+					</g>
+				)
+			})()}
 			{data.map((d, i) => {
 				const total = d.strength + d.cardio + d.warmup
 				const h = Math.max(total > 0 ? 3 : 0, (total / max) * innerH)
@@ -486,6 +733,7 @@ const CalorieBars = memo(function CalorieBars({ data }) {
 						{d.warmup > 0 && (
 							<rect x={x} y={y} width={bw} height={hw} rx="4" fill="#38bdf8" />
 						)}
+						<text x={x + bw / 2} y={y - 5} textAnchor="middle" fontSize="8" fontWeight="800" fill="#e4e4e7">{Math.round(total)}</text>
 						<text x={x + bw / 2} y={H - 6} textAnchor="middle" fontSize="8" fill="#71717a">{d.short}</text>
 					</g>
 				)
@@ -494,7 +742,44 @@ const CalorieBars = memo(function CalorieBars({ data }) {
 	)
 })
 
-// Línea de tendencia genérica (volumen kg o peso máximo). SVG puro.
+// Barras de constancia: sesiones por semana + línea de meta (5/semana). SVG puro.
+const WeekBars = memo(function WeekBars({ data, goal = 5 }) {
+	if (data.length === 0) return null
+	const W = 340
+	const H = 150
+	const PAD_L = 22
+	const PAD_B = 20
+	const PAD_T = 22
+	const max = Math.max(goal, 1, ...data.map((d) => d.value))
+	const innerW = W - PAD_L - 8
+	const innerH = H - PAD_T - PAD_B
+	const slot = innerW / data.length
+	const bw = Math.min(26, slot * 0.55)
+	const goalY = PAD_T + innerH * (1 - goal / max)
+	return (
+		<svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label={`Sesiones por semana, meta ${goal}`}>
+			<g>
+				<line x1={PAD_L} y1={goalY} x2={W - 8} y2={goalY} stroke="#22c55e" strokeWidth="1" strokeDasharray="4 3" opacity="0.7" />
+				<text x={W - 8} y={goalY - 4} textAnchor="end" fontSize="8" fontWeight="700" fill="#22c55e">Meta {goal}</text>
+			</g>
+			{data.map((d, i) => {
+				const h = Math.max(d.value > 0 ? 4 : 0, (d.value / max) * innerH)
+				const x = PAD_L + slot * i + (slot - bw) / 2
+				const y = PAD_T + innerH - h
+				return (
+					<g key={d.id}>
+						<title>{`${d.label}: ${d.value} ${d.value === 1 ? 'sesión' : 'sesiones'}`}</title>
+						<text x={x + bw / 2} y={y - 5} textAnchor="middle" fontSize="9" fontWeight="800" fill={d.current ? '#f87171' : '#e4e4e7'}>{d.value}</text>
+						<rect x={x} y={y} width={bw} height={h} rx="4" fill={d.current ? '#ef4444' : d.value >= goal ? '#22c55e' : 'rgba(255,255,255,0.22)'} opacity={d.current ? 1 : 0.85} />
+						<text x={x + bw / 2} y={H - 6} textAnchor="middle" fontSize="8" fontWeight={d.current ? 800 : 400} fill={d.current ? '#f87171' : '#71717a'}>{d.short}</text>
+					</g>
+				)
+			})}
+		</svg>
+	)
+})
+
+// Línea de tendencia genérica (p. ej. peso total movido por sesión). SVG puro.
 const TrendLine = memo(function TrendLine({ data, color = '#22c55e', unit = '' }) {
 	if (data.length === 0) return null
 	const W = 340
@@ -556,6 +841,27 @@ const UnitToggle = memo(function UnitToggle({ unit, onSwitch }) {
 					{u === 'lb' ? 'lb' : 'kg'}
 				</button>
 			))}
+		</div>
+	)
+})
+
+// Snackbar glassy para avisos (errores de validación en modales).
+// Vive fuera del <main> como BottomNav/RestPill: fixed real al viewport y
+// por encima de los modales (z-60). Estilo oscuro propio, legible en claro y oscuro.
+const Snackbar = memo(function Snackbar({ snack, onClose }) {
+	if (!snack) return null
+	return (
+		<div
+			key={snack.key}
+			role="alert"
+			className={`snackbar glass-card ${snack.tone === 'warn' ? 'warn' : 'error'}`}
+			style={{ position: 'fixed', zIndex: 60 }}
+		>
+			<span aria-hidden="true" className="snackbar-dot" />
+			<p>{snack.msg}</p>
+			<button type="button" onClick={onClose} aria-label="Cerrar aviso" className="snackbar-close">
+				×
+			</button>
 		</div>
 	)
 })
@@ -668,8 +974,8 @@ const CustomSelect = memo(function CustomSelect({ value, onChange, options = SEX
 // Onboarding de cuentas nuevas: datos básicos para las stats (peso, altura, edad, sexo).
 const OnboardingModal = memo(function OnboardingModal({ form, setForm, unit, onSwitchUnit, error, saving, onSubmit, onSkip }) {
 	return (
-		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5" role="dialog" aria-modal="true" aria-label="Completa tus datos básicos">
-			<div className="glass-card w-full max-w-sm rounded-2xl p-5">
+		<div className="fixed inset-0 z-50 flex overflow-y-auto overscroll-contain bg-black/70 p-4 sm:p-5" role="dialog" aria-modal="true" aria-label="Completa tus datos básicos">
+			<div className="glass-card modal-card m-auto w-full max-w-sm rounded-2xl p-5">
 				<h3 className="text-lg font-black text-white">Bienvenido · tus datos básicos</h3>
 				<p className="mt-1 text-xs uppercase tracking-widest text-zinc-500">Nos ayudan a calcular tus stats (kcal, IMC)</p>
 				<form onSubmit={onSubmit} className="mt-4 flex flex-col gap-3">
@@ -683,7 +989,7 @@ const OnboardingModal = memo(function OnboardingModal({ form, setForm, unit, onS
 							value={form.weight}
 							onChange={(e) => setForm((p) => ({ ...p, weight: e.target.value }))}
 							placeholder={unit === 'kg' ? 'ej. 75' : 'ej. 165'}
-							autoFocus
+							autoFocus={FINE_POINTER}
 							className="glass-inset rounded-xl px-4 py-3 text-sm normal-case tracking-normal text-white placeholder:text-zinc-600"
 						/>
 					</label>
@@ -750,7 +1056,13 @@ const OnboardingModal = memo(function OnboardingModal({ form, setForm, unit, onS
 function App() {
 	const [session, setSession] = useState(null)
 	const [selectedDay, setSelectedDay] = useState(null)
-	const [calendarView, setCalendarView] = useState('list')
+	// Contenido de la semana (rutina/descanso por día, Lun..Dom fijos).
+	// Solo lista. Clave antigua `tempolift-week-order-*` ignorada a propósito:
+	// el modelo cambió de "mover días" a "mover contenidos".
+	const [weekMap, setWeekMap] = useState(() => readWeekMap(null) ?? DEFAULT_WEEK_MAP.map((s) => ({ ...s })))
+	// Meta semanal de sesiones de este usuario (1 a 7).
+	const [weekGoal, setWeekGoal] = useState(() => readWeekGoal(null))
+	const [editingWeek, setEditingWeek] = useState(false)
 	const [theme, setTheme] = useState(() => readTheme())
 	const [openPhase, setOpenPhase] = useState('strength')
 	// Series por ejercicio: { [workoutId]: { [index]: 1 | 2 } }. Solo suma al progreso con las 2 series.
@@ -773,6 +1085,9 @@ function App() {
 	const [editReps, setEditReps] = useState('')
 	const [setMsg, setSetMsg] = useState('')
 	const [confirmDelete, setConfirmDelete] = useState(null)
+	// Exportar / borrar todo el historial (sección Tus datos del perfil)
+	const [dataMsg, setDataMsg] = useState('')
+	const [confirmWipe, setConfirmWipe] = useState(false)
 	const [restLeft, setRestLeft] = useState(0)
 	const [restLabel, setRestLabel] = useState('')
 	const [restSeries, setRestSeries] = useState(1)
@@ -783,20 +1098,29 @@ function App() {
 	const [weightModal, setWeightModal] = useState(null)
 	const [weightInput, setWeightInput] = useState('')
 	const [repsInput, setRepsInput] = useState('')
-	const [setError, setSetError] = useState('')
 	// Cardio (Fase 3): se marca una sola vez por día + minutos (+ kcal reales
 	// de la máquina, opcionales: si se anotan reemplazan la estimación).
 	const [cardioByDay, setCardioByDay] = useState({})
 	const [cardioModal, setCardioModal] = useState(null)
 	const [cardioInput, setCardioInput] = useState('')
 	const [cardioMachineInput, setCardioMachineInput] = useState('')
-	const [cardioError, setCardioError] = useState('')
 	// Calentamiento (Fase 1): igual que el cardio, una sola marca + minutos
 	const [warmupByDay, setWarmupByDay] = useState({})
 	const [warmupModal, setWarmupModal] = useState(null)
 	const [warmupInput, setWarmupInput] = useState('')
 	const [warmupMachineInput, setWarmupMachineInput] = useState('')
-	const [warmupError, setWarmupError] = useState('')
+	// Snackbar de avisos (errores de validación en modales). Auto-cierre.
+	const [snack, setSnack] = useState(null)
+	const snackTimer = useRef(null)
+	const showSnack = useCallback((msg, tone = 'error') => {
+		if (snackTimer.current) clearTimeout(snackTimer.current)
+		setSnack({ msg, tone, key: Date.now() })
+		snackTimer.current = setTimeout(() => setSnack(null), 3500)
+	}, [])
+	const closeSnack = useCallback(() => {
+		if (snackTimer.current) clearTimeout(snackTimer.current)
+		setSnack(null)
+	}, [])
 	// Unidad visible del peso (lb/kg). Todo se guarda en lb.
 	const [weightUnit, setWeightUnit] = useState(() => readWeightUnit())
 	// Peso corporal (kg) para estimar las kcal del cardio. Por usuario (perfil + local).
@@ -816,9 +1140,14 @@ function App() {
 	const [statsLoading, setStatsLoading] = useState(false)
 	const [statsRows, setStatsRows] = useState([])
 	const [statsError, setStatsError] = useState('')
+	// Mejor marca por ejercicio (para la lista de récords del perfil)
+	const [exerciseRecords, setExerciseRecords] = useState([])
+	const [showAllRecords, setShowAllRecords] = useState(false)
 	// Vínculos del plan en la base de datos + último peso por ejercicio
 	const [planIds, setPlanIds] = useState(null)
 	const [lastW, setLastW] = useState({})
+	// Últimas series por ejercicio, para el historial del acordeón
+	const [recentW, setRecentW] = useState({})
 	const [syncError, setSyncError] = useState('')
 	// Estado del guardado del día: idle | saving | saved | error
 	const [saveStatus, setSaveStatus] = useState({ state: 'idle', msg: '' })
@@ -883,11 +1212,11 @@ function App() {
 			return
 		}
 		const setNumber = current + 1
-		const exerciseId = planIds?.byIndex?.[index]
-		const prev = exerciseId ? lastW[exerciseId] : null
-		setWeightInput(prev?.weight_kg != null ? displayWeight(prev.weight_kg, weightUnit) : '')
-		setRepsInput(prev?.reps != null ? String(prev.reps) : (parseTargetReps(planReps) != null ? String(parseTargetReps(planReps)) : ''))
-		setSetError('')
+		// El modal abre vacío a propósito: sin peso ni reps por defecto para
+		// no empujar al usuario a una marca (el último registro se muestra
+		// como texto informativo y en el historial del ejercicio).
+		setWeightInput('')
+		setRepsInput('')
 		setWeightModal({ workoutId, index, name: exerciseName ?? 'Ejercicio', setNumber, planReps })
 	}
 
@@ -909,22 +1238,29 @@ function App() {
 		setWeightModal(null)
 		setWeightInput('')
 		setRepsInput('')
-		setSetError('')
 	}
 
 	const confirmWeightModal = (e) => {
 		if (e) e.preventDefault()
 		if (!weightModal) return
+		// Los formularios llevan noValidate: el navegador no bloquea y el aviso
+		// sale en el snackbar con estilo propio (incluida la regla del paso 0.5).
+		const rawW = parseFloat(weightInput)
+		const rawR = parseFloat(repsInput)
+		if (!Number.isFinite(rawW) || rawW < 0) {
+			showSnack(`Escribe un peso válido en ${weightUnit} (0 o más)`)
+			return
+		}
+		if (Math.abs(rawW * 2 - Math.round(rawW * 2)) > 1e-9) {
+			showSnack(`El peso va de 0.5 en 0.5 ${weightUnit} (ej. ${weightHintFor(weightModal.name, weightUnit)})`)
+			return
+		}
+		if (!Number.isFinite(rawR) || rawR < 0 || Math.abs(rawR - Math.round(rawR)) > 1e-9) {
+			showSnack('Escribe repeticiones enteras (0 o más)')
+			return
+		}
 		const wLb = displayToLb(weightInput, weightUnit)
 		const r = parseInt(repsInput, 10)
-		if (!Number.isFinite(wLb) || wLb < 0) {
-			setSetError(`Escribe un peso válido en ${weightUnit} (0 o más)`)
-			return
-		}
-		if (Number.isNaN(r) || r < 0) {
-			setSetError('Escribe repeticiones válidas (0 o más)')
-			return
-		}
 		const w = Math.round(wLb * 100) / 100
 		const { workoutId, index, name, setNumber } = weightModal
 		setSeriesByDay((prev) => ({
@@ -939,7 +1275,6 @@ function App() {
 		setWeightModal(null)
 		setWeightInput('')
 		setRepsInput('')
-		setSetError('')
 		setRestLabel(name)
 		setRestSeries(setNumber)
 		setRestLeft(REST_SECONDS)
@@ -963,11 +1298,9 @@ function App() {
 		setCardioModal(null)
 		setCardioInput('')
 		setCardioMachineInput('')
-		setCardioError('')
 		setWarmupModal(null)
 		setWarmupInput('')
 		setWarmupMachineInput('')
-		setWarmupError('')
 		setDayComplete(false)
 		setExpandedKey(null)
 		setRestLeft(0)
@@ -1002,7 +1335,6 @@ function App() {
 		const prev = cardioByDay[selectedWorkout.id]
 		setCardioInput(prev ? String(prev.minutes) : String(DEFAULT_CARDIO_MIN))
 		setCardioMachineInput(prev?.machineKcal != null ? String(prev.machineKcal) : '')
-		setCardioError('')
 		setCardioModal({ workoutId: selectedWorkout.id })
 	}
 
@@ -1010,15 +1342,14 @@ function App() {
 		setCardioModal(null)
 		setCardioInput('')
 		setCardioMachineInput('')
-		setCardioError('')
 	}
 
-	// Las kcal de la máquina son opcionales (0 a 5000). Si se anotan,
+	// Las kcal de la máquina son opcionales (0 a 5000, enteras). Si se anotan,
 	// reemplazan la estimación en el total del día y en el historial.
 	function parseMachineKcal(raw) {
 		if (raw === '' || raw == null) return null
 		const v = parseFloat(raw)
-		if (!Number.isFinite(v) || v < 0 || v > 5000) return NaN
+		if (!Number.isFinite(v) || v < 0 || v > 5000 || Math.abs(v - Math.round(v)) > 1e-9) return NaN
 		return Math.round(v)
 	}
 
@@ -1026,13 +1357,13 @@ function App() {
 		if (e) e.preventDefault()
 		if (!cardioModal) return
 		const m = parseFloat(cardioInput)
-		if (!Number.isFinite(m) || m <= 0 || m > 180) {
-			setCardioError('Escribe los minutos (1 a 180)')
+		if (!Number.isFinite(m) || m <= 0 || m > 180 || Math.abs(m - Math.round(m)) > 1e-9) {
+			showSnack('Escribe los minutos en enteros (1 a 180)')
 			return
 		}
 		const machine = parseMachineKcal(cardioMachineInput)
 		if (Number.isNaN(machine)) {
-			setCardioError('Calorías de la máquina inválidas (0 a 5000, o vacío)')
+			showSnack('Calorías de la máquina inválidas (enteras, 0 a 5000, o vacío)')
 			return
 		}
 		const { workoutId } = cardioModal
@@ -1041,7 +1372,6 @@ function App() {
 		setCardioModal(null)
 		setCardioInput('')
 		setCardioMachineInput('')
-		setCardioError('')
 	}
 
 	const unmarkCardio = () => {
@@ -1060,7 +1390,6 @@ function App() {
 		const prev = warmupByDay[selectedWorkout.id]
 		setWarmupInput(prev ? String(prev.minutes) : String(DEFAULT_WARMUP_MIN))
 		setWarmupMachineInput(prev?.machineKcal != null ? String(prev.machineKcal) : '')
-		setWarmupError('')
 		setWarmupModal({ workoutId: selectedWorkout.id })
 	}
 
@@ -1068,20 +1397,19 @@ function App() {
 		setWarmupModal(null)
 		setWarmupInput('')
 		setWarmupMachineInput('')
-		setWarmupError('')
 	}
 
 	const confirmWarmup = (e) => {
 		if (e) e.preventDefault()
 		if (!warmupModal) return
 		const m = parseFloat(warmupInput)
-		if (!Number.isFinite(m) || m <= 0 || m > 60) {
-			setWarmupError('Escribe los minutos (1 a 60)')
+		if (!Number.isFinite(m) || m <= 0 || m > 60 || Math.abs(m - Math.round(m)) > 1e-9) {
+			showSnack('Escribe los minutos en enteros (1 a 60)')
 			return
 		}
 		const machine = parseMachineKcal(warmupMachineInput)
 		if (Number.isNaN(machine)) {
-			setWarmupError('Calorías de la máquina inválidas (0 a 5000, o vacío)')
+			showSnack('Calorías de la máquina inválidas (enteras, 0 a 5000, o vacío)')
 			return
 		}
 		const { workoutId } = warmupModal
@@ -1090,7 +1418,6 @@ function App() {
 		setWarmupModal(null)
 		setWarmupInput('')
 		setWarmupMachineInput('')
-		setWarmupError('')
 	}
 
 	const unmarkWarmup = () => {
@@ -1117,6 +1444,7 @@ function App() {
 	const selectDay = useCallback((id) => {
 		setSelectedDay(id)
 		setLastDay(id)
+		setEditingWeek(false)
 	}, [])
 	const goBack = useCallback(() => setSelectedDay(null), [])
 	const returnToTraining = useCallback(() => {
@@ -1144,7 +1472,58 @@ function App() {
 		setConfirmDelete(null)
 		setCardioModal(null)
 		setWarmupModal(null)
+		setEditingWeek(false)
+		setDataMsg('')
+		setConfirmWipe(false)
 	}, [])
+
+	// Mueve el CONTENIDO de un día (rutina o descanso) al día vecino,
+	// intercambiándolos. Los días Lun..Dom nunca cambian de sitio.
+	// Guarda el mapa para este usuario.
+	const moveWeekDay = useCallback((from, dir) => {
+		const to = from + dir
+		setWeekMap((prev) => {
+			if (to < 0 || to >= prev.length) return prev
+			const next = prev.map((s) => ({ ...s }))
+			const tmp = next[from]
+			next[from] = next[to]
+			next[to] = tmp
+			persistWeekMap(session?.user?.id, next)
+			return next
+		})
+	}, [session?.user?.id])
+
+	const resetWeekOrder = useCallback(() => {
+		const next = DEFAULT_WEEK_MAP.map((s) => ({ ...s }))
+		setWeekMap(next)
+		persistWeekMap(session?.user?.id, next)
+	}, [session?.user?.id])
+
+	// Cambiar la meta regenera la semana con el plan de esos días (qué días se
+	// entrena y qué rutina toca, cubriendo todo el cuerpo). Los movimientos
+	// manuales previos se reemplazan: el snackbar lo avisa.
+	const changeWeekGoal = (dir) => {
+		const next = Math.min(7, Math.max(1, weekGoal + dir))
+		if (next === weekGoal) return
+		setWeekGoal(next)
+		persistWeekGoal(session?.user?.id, next)
+		const map = buildWeekMapForGoal(next)
+		setWeekMap(map)
+		persistWeekMap(session?.user?.id, map)
+		showSnack(`Plan de ${next} ${next === 1 ? 'día' : 'días'} aplicado en tu semana`)
+	}
+
+	// Filas del home: días fijos Lun..Dom con el contenido de este usuario.
+	const dayRows = weekSchedule.map((entry, i) => {
+		const slot = weekMap[i] ?? DEFAULT_WEEK_MAP[i]
+		return slot.rest
+			? { day: entry.day, fullDay: entry.fullDay, rest: true }
+			: { day: entry.day, fullDay: entry.fullDay, workoutId: slot.workoutId }
+	})
+	// Días que entrenan esta semana (== meta salvo edición manual imposible):
+	// alimenta contadores del home y el "Día X / N" del detalle.
+	const trainingRows = dayRows.filter((r) => !r.rest)
+	const trainingCount = trainingRows.length
 
 	const deleteSession = async (s) => {
 		if (confirmDelete !== s.id) {
@@ -1175,6 +1554,32 @@ function App() {
 			setSetMsg('Entrenamiento eliminado')
 		} catch (err) {
 			setSetMsg(`No se pudo eliminar: ${friendlyError(err)}`)
+		}
+	}
+
+	// Borra TODAS las sesiones y series del usuario (rutinas y perfil intactos).
+	// Doble toque para confirmar, mismo patrón que borrar una sesión.
+	const wipeHistory = async () => {
+		if (!confirmWipe) {
+			setConfirmWipe(true)
+			setDataMsg('')
+			return
+		}
+		setConfirmWipe(false)
+		try {
+			const uid = session.user.id
+			const { error: logsError } = await supabase.from('set_logs').delete().eq('user_id', uid)
+			if (logsError) throw logsError
+			const { error: sessError } = await supabase.from('workout_sessions').delete().eq('user_id', uid)
+			if (sessError) throw sessError
+			setSbSessions([])
+			setSessionSets({})
+			setStatsRows([])
+			setExerciseRecords([])
+			setOpenSession(null)
+			setDataMsg('Historial borrado')
+		} catch (err) {
+			setDataMsg(`No se pudo borrar: ${friendlyError(err)}`)
 		}
 	}
 
@@ -1242,6 +1647,23 @@ function App() {
 		return () => clearTimeout(t)
 	}, [restLeft])
 
+	// Modal abierto = fondo bloqueado: sin scroll de la página detrás
+	// (desktop con rueda, móvil con gesto). El overlay lleva
+	// overflow-y-auto + overscroll-contain y la card .modal-card hace
+	// scroll interno si supera el viewport (teclado móvil incluido).
+	const anyModalOpen = weightModal != null || cardioModal != null || warmupModal != null || showOnboarding
+	useEffect(() => {
+		if (!anyModalOpen) return
+		const prevOverflow = document.body.style.overflow
+		const prevOverscroll = document.body.style.overscrollBehavior
+		document.body.style.overflow = 'hidden'
+		document.body.style.overscrollBehavior = 'none'
+		return () => {
+			document.body.style.overflow = prevOverflow
+			document.body.style.overscrollBehavior = prevOverscroll
+		}
+	}, [anyModalOpen])
+
 	const fetchSb = useCallback(async () => {
 		if (!session?.user?.id) return
 		setSbLoading(true)
@@ -1262,12 +1684,14 @@ function App() {
 	}, [fetchSb, currentView])
 
 	// Stats del perfil: agrega set_logs por sesión terminada (volumen, peso máx,
-	// kcal de fuerza estimadas + cardio guardado en notes). Sin migración.
+	// kcal de fuerza estimadas + cardio guardado en notes) + mejor marca por
+	// ejercicio para la lista de récords. Sin migración.
 	useEffect(() => {
 		if (currentView !== 'profile' || !session?.user?.id) return
 		const finished = sbSessions.filter((s) => s.ended_at)
 		if (finished.length === 0) {
 			setStatsRows([])
+			setExerciseRecords([])
 			return
 		}
 		let cancelled = false
@@ -1277,7 +1701,7 @@ function App() {
 			const ids = finished.map((s) => s.id)
 			const { data, error } = await supabase
 				.from('set_logs')
-				.select('session_id, weight_kg, reps')
+				.select('session_id, weight_kg, reps, exercises (name)')
 				.eq('user_id', session.user.id)
 				.in('session_id', ids)
 				.limit(1000)
@@ -1286,6 +1710,17 @@ function App() {
 			for (const row of data ?? []) {
 				;(bySession[row.session_id] ??= []).push(row)
 			}
+			const sessionDate = {}
+			for (const s of finished) sessionDate[s.id] = s.started_at
+			const bestByExercise = {}
+			for (const row of data ?? []) {
+				const name = row.exercises?.name ?? 'Ejercicio'
+				const lb = Number(row.weight_kg) || 0
+				if (!bestByExercise[name] || lb > bestByExercise[name].maxLb) {
+					bestByExercise[name] = { name, maxLb: lb, reps: Number(row.reps) || 0, date: sessionDate[row.session_id] ?? null }
+				}
+			}
+			const records = Object.values(bestByExercise).sort((a, b) => b.maxLb - a.maxLb)
 			const rows = finished.map((s) => {
 				const logs = bySession[s.id] ?? []
 				let volumeKg = 0
@@ -1320,6 +1755,7 @@ function App() {
 				}
 			})
 			if (!cancelled) setStatsRows(rows)
+			if (!cancelled) setExerciseRecords(records)
 		})().catch((err) => {
 			if (!cancelled) setStatsError(friendlyError(err))
 		}).finally(() => {
@@ -1333,6 +1769,7 @@ function App() {
 		if (!session?.user?.id || selectedDay == null) {
 			setPlanIds(null)
 			setLastW({})
+			setRecentW({})
 			return
 		}
 		const workout = workoutDays.find((day) => day.id === selectedDay)
@@ -1349,6 +1786,12 @@ function App() {
 			} catch {
 				// sin último peso: el modal queda vacío
 			}
+			try {
+				const recent = await fetchRecentLogs(supabase, session.user.id, Object.values(ids.byIndex), 4)
+				if (!cancelled) setRecentW(recent)
+			} catch {
+				// sin historial reciente: el acordeón no muestra la caja
+			}
 		}).catch((err) => {
 			if (!cancelled) setSyncError(friendlyError(err))
 		})
@@ -1364,6 +1807,14 @@ function App() {
 		})
 		return () => subscription.unsubscribe()
 	}, [])
+
+	// Orden de la semana por usuario: cada uno organiza sus días sin afectar
+	// a otros. Al cambiar de cuenta se carga el suyo (o el orden por defecto).
+	useEffect(() => {
+		setWeekMap(readWeekMap(session?.user?.id) ?? DEFAULT_WEEK_MAP.map((s) => ({ ...s })))
+		setWeekGoal(readWeekGoal(session?.user?.id))
+		setEditingWeek(false)
+	}, [session?.user?.id])
 
 	// Perfil por usuario: Supabase (tabla profiles) + local por usuario.
 	// Si es cuenta nueva sin peso, se abre el onboarding de datos básicos.
@@ -1606,6 +2057,12 @@ function App() {
 		setDayComplete(false)
 	}, [selectedDay])
 
+	// SPA sin router: cada pantalla empieza arriba. Sin esto se hereda el
+	// scroll de la vista anterior (bajas en home y la rutina/perfil abre a mitad).
+	useEffect(() => {
+		window.scrollTo(0, 0)
+	}, [selectedDay, currentView])
+
 	if (!session) {
 		return (
 			<main className={`screen-enter theme-${theme} app-shell mx-auto min-h-screen max-w-lg px-5 pb-10 text-white`} style={{ backgroundColor: '#0b0d0c' }}>
@@ -1644,7 +2101,7 @@ function App() {
 					</button>
 				</header>
 				<div className="relative z-10 mb-6">
-					<p className="mb-2 text-sm font-bold uppercase tracking-[0.2em] text-red-500">Día {selectedWorkout.id} / 5</p>
+					<p className="mb-2 text-sm font-bold uppercase tracking-[0.2em] text-red-500">Día {trainingRows.findIndex((r) => r.workoutId === selectedDay) + 1 || selectedWorkout.id} / {trainingCount}</p>
 					<h1 className="text-4xl font-black tracking-tight">{selectedWorkout.name}</h1>
 					<p className="mt-2 text-lg text-zinc-400">{selectedWorkout.focus}</p>
 				</div>
@@ -1745,7 +2202,9 @@ function App() {
 										partial={series === 1}
 										blocked={isResting || weightModal != null || cardioModal != null || warmupModal != null}
 										lastWeight={prev?.weight_kg != null ? displayWeight(prev.weight_kg, weightUnit) : null}
+										lastReps={prev?.reps ?? null}
 										weightUnit={weightUnit}
+										history={exerciseId ? (recentW[exerciseId] ?? null) : null}
 										onToggle={() => handleToggleCheck(selectedWorkout.id, index, name, reps)}
 										expanded={expandedKey === key}
 										onExpand={() => toggleExpand(key)}
@@ -1787,11 +2246,18 @@ function App() {
 				<p className="relative z-10 mt-6 text-center text-xs uppercase tracking-widest text-zinc-600">Escucha tu cuerpo · Mantén el control</p>
 				</main>
 				{weightModal && (
-					<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5" role="dialog" aria-modal="true" aria-label={`Anotar serie ${weightModal.setNumber}`}>
-						<div className="glass-card w-full max-w-sm rounded-2xl p-5">
+					<div className="fixed inset-0 z-50 flex overflow-y-auto overscroll-contain bg-black/70 p-4 sm:p-5" role="dialog" aria-modal="true" aria-label={`Anotar serie ${weightModal.setNumber}`}>
+						<div className="glass-card modal-card m-auto w-full max-w-sm rounded-2xl p-5">
 							<h3 className="text-lg font-black text-white">{weightModal.name} · Serie {weightModal.setNumber}/2</h3>
-							<p className="mt-1 text-xs uppercase tracking-widest text-zinc-500">Se guardará en tu historial</p>
-							<form onSubmit={confirmWeightModal} className="mt-4 flex flex-col gap-3">
+							<p className="mt-1 text-xs uppercase tracking-widest text-zinc-500">
+								{(() => {
+									const exId = planIds?.byIndex?.[weightModal.index]
+									const prev = exId ? lastW[exId] : null
+									if (prev?.weight_kg == null) return 'Sin registros previos · marca tu base'
+									return `Último: ${displayWeight(prev.weight_kg, weightUnit)} ${weightUnit} × ${prev.reps ?? '—'} reps`
+								})()}
+							</p>
+							<form onSubmit={confirmWeightModal} noValidate className="mt-4 flex flex-col gap-3">
 								<UnitToggle unit={weightUnit} onSwitch={switchWeightUnit} />
 								<label className="flex flex-col gap-1 text-xs font-bold uppercase tracking-widest text-zinc-400">
 									Peso ({weightUnit})
@@ -1801,8 +2267,8 @@ function App() {
 										step="0.5"
 										value={weightInput}
 										onChange={(e) => setWeightInput(e.target.value)}
-										placeholder={weightUnit === 'kg' ? 'ej. 60' : 'ej. 135'}
-										autoFocus
+										placeholder={`ej. ${weightHintFor(weightModal.name, weightUnit)}`}
+										autoFocus={FINE_POINTER}
 										className="glass-inset rounded-xl px-4 py-3 text-sm normal-case tracking-normal text-white placeholder:text-zinc-600"
 									/>
 								</label>
@@ -1818,9 +2284,6 @@ function App() {
 										className="glass-inset rounded-xl px-4 py-3 text-sm normal-case tracking-normal text-white placeholder:text-zinc-600"
 									/>
 								</label>
-								{setError && (
-									<p className="text-sm text-red-400">{setError}</p>
-								)}
 								<div className="flex gap-2">
 									<button
 										type="button"
@@ -1844,15 +2307,15 @@ function App() {
 					const machinePreview = parseFloat(cardioMachineInput)
 					const hasMachine = Number.isFinite(machinePreview) && machinePreview >= 0
 					return (
-						<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5" role="dialog" aria-modal="true" aria-label="Anotar cardio">
-							<div className="glass-card w-full max-w-sm rounded-2xl p-5">
+						<div className="fixed inset-0 z-50 flex overflow-y-auto overscroll-contain bg-black/70 p-4 sm:p-5" role="dialog" aria-modal="true" aria-label="Anotar cardio">
+							<div className="glass-card modal-card m-auto w-full max-w-sm rounded-2xl p-5">
 								<h3 className="text-lg font-black text-white">Cardio final · 1 marca</h3>
 								<p className="mt-1 text-xs uppercase tracking-widest text-zinc-500">Caminadora 4-5 km/h · inclinación 10-12</p>
 								<div className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3" role="note">
 									<p className="text-xs font-bold uppercase tracking-widest text-amber-300">Revisa la máquina</p>
 									<p className="mt-1 text-xs leading-relaxed text-zinc-300">Fíjate en la pantalla de la caminadora e introduce las calorías que muestra. Si lo dejas vacío, las estimamos con el peso de tu perfil ({bodyKg} kg).</p>
 								</div>
-								<form onSubmit={confirmCardio} className="mt-4 flex flex-col gap-3">
+								<form onSubmit={confirmCardio} noValidate className="mt-4 flex flex-col gap-3">
 									<label className="flex flex-col gap-1 text-xs font-bold uppercase tracking-widest text-zinc-400">
 										Tiempo (min)
 										<input
@@ -1863,7 +2326,7 @@ function App() {
 											value={cardioInput}
 											onChange={(e) => setCardioInput(e.target.value)}
 											placeholder="ej. 25"
-											autoFocus
+											autoFocus={FINE_POINTER}
 											className="glass-inset rounded-xl px-4 py-3 text-sm normal-case tracking-normal text-white placeholder:text-zinc-600"
 										/>
 									</label>
@@ -1883,9 +2346,6 @@ function App() {
 									<p className="text-sm text-zinc-400" aria-live="polite">
 										{hasMachine ? `Usaremos ${Math.round(machinePreview)} kcal de la máquina` : `≈ ${Math.round(cardioKcalFor(cardioInput || 0, bodyKg))} kcal estimadas con ${bodyKg} kg`}
 									</p>
-									{cardioError && (
-										<p className="text-sm text-red-400">{cardioError}</p>
-									)}
 									<div className="flex gap-2">
 										<button
 											type="button"
@@ -1910,15 +2370,15 @@ function App() {
 					const machinePreview = parseFloat(warmupMachineInput)
 					const hasMachine = Number.isFinite(machinePreview) && machinePreview >= 0
 					return (
-						<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5" role="dialog" aria-modal="true" aria-label="Anotar calentamiento">
-							<div className="glass-card w-full max-w-sm rounded-2xl p-5">
+						<div className="fixed inset-0 z-50 flex overflow-y-auto overscroll-contain bg-black/70 p-4 sm:p-5" role="dialog" aria-modal="true" aria-label="Anotar calentamiento">
+							<div className="glass-card modal-card m-auto w-full max-w-sm rounded-2xl p-5">
 								<h3 className="text-lg font-black text-white">Calentamiento · 1 marca</h3>
 								<p className="mt-1 text-xs uppercase tracking-widest text-zinc-500">Caminadora 5 km/h · inclinación 0</p>
 								<div className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3" role="note">
 									<p className="text-xs font-bold uppercase tracking-widest text-amber-300">Revisa la máquina</p>
 									<p className="mt-1 text-xs leading-relaxed text-zinc-300">Fíjate en la pantalla de la caminadora e introduce las calorías que muestra. Si lo dejas vacío, las estimamos con el peso de tu perfil ({bodyKg} kg).</p>
 								</div>
-								<form onSubmit={confirmWarmup} className="mt-4 flex flex-col gap-3">
+								<form onSubmit={confirmWarmup} noValidate className="mt-4 flex flex-col gap-3">
 									<label className="flex flex-col gap-1 text-xs font-bold uppercase tracking-widest text-zinc-400">
 										Tiempo (min)
 										<input
@@ -1929,7 +2389,7 @@ function App() {
 											value={warmupInput}
 											onChange={(e) => setWarmupInput(e.target.value)}
 											placeholder="ej. 7"
-											autoFocus
+											autoFocus={FINE_POINTER}
 											className="glass-inset rounded-xl px-4 py-3 text-sm normal-case tracking-normal text-white placeholder:text-zinc-600"
 										/>
 									</label>
@@ -1949,9 +2409,6 @@ function App() {
 									<p className="text-sm text-zinc-400" aria-live="polite">
 										{hasMachine ? `Usaremos ${Math.round(machinePreview)} kcal de la máquina` : `≈ ${Math.round(WARMUP_MET * (Number(bodyKg) > 0 ? Number(bodyKg) : DEFAULT_BODY_KG) * ((parseFloat(warmupInput) || 0) / 60))} kcal estimadas con ${bodyKg} kg`}
 									</p>
-									{warmupError && (
-										<p className="text-sm text-red-400">{warmupError}</p>
-									)}
 									<div className="flex gap-2">
 										<button
 											type="button"
@@ -1972,6 +2429,7 @@ function App() {
 						</div>
 					)
 				})()}
+				<Snackbar snack={snack} onClose={closeSnack} />
 				<BottomNav value={currentView} onChange={handleNav} theme={theme} />
 				{showOnboarding && (
 					<OnboardingModal
@@ -2105,8 +2563,17 @@ function App() {
 						const last = finished[0]
 						const email = session.user?.email ?? ''
 						const initial = (email.charAt(0) || 'T').toUpperCase()
-						// statsRows viene en orden reciente → antiguo: se invierte para graficar cronológico
-						const chartData = [...statsRows].reverse().slice(-10)
+					// statsRows viene en orden reciente → antiguo: se invierte para graficar cronológico
+					const chartData = [...statsRows].reverse().slice(-10)
+					// Resúmenes en lenguaje simple para acompañar cada gráfica
+					const kcalAvg = chartData.length > 0 ? chartData.reduce((a, r) => a + r.totalKcal, 0) / chartData.length : 0
+					const kcalBest = chartData.length > 0 ? chartData.reduce((a, b) => (b.totalKcal > a.totalKcal ? b : a)) : null
+					const weekData = sessionsByWeek(finished.map((s) => s.started_at), 8)
+					const thisWeek = weekData.length > 0 ? weekData[weekData.length - 1].value : 0
+					const volFirst = chartData.length > 0 ? chartData[0].volumeKg : 0
+					const volLast = chartData.length > 0 ? chartData[chartData.length - 1].volumeKg : 0
+					const volDelta = volFirst > 0 ? Math.round(((volLast - volFirst) / volFirst) * 100) : 0
+					const visibleRecords = showAllRecords ? exerciseRecords : exerciseRecords.slice(0, 6)
 						return (
 							<div className="flex flex-col gap-4">
 								<section className="glass-card rounded-2xl p-5 text-center">
@@ -2139,6 +2606,44 @@ function App() {
 									</p>
 								</section>
 								<section className="glass-card rounded-2xl p-5">
+									<h2 className="text-xs font-bold uppercase tracking-widest text-zinc-500">Meta semanal</h2>
+									<div className="mt-3 flex items-center justify-between gap-3">
+										<p className="text-sm text-zinc-400">Sesiones por semana</p>
+										<div className="flex items-center gap-2">
+											<button
+												type="button"
+												onClick={() => changeWeekGoal(-1)}
+												disabled={weekGoal <= 1}
+												aria-label="Bajar meta semanal"
+												className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 text-base text-zinc-300 transition hover:border-red-500/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+											>
+												−
+											</button>
+											<strong className="w-8 text-center text-xl font-black tabular-nums text-white" aria-live="polite">{weekGoal}</strong>
+											<button
+												type="button"
+												onClick={() => changeWeekGoal(1)}
+												disabled={weekGoal >= 7}
+												aria-label="Subir meta semanal"
+												className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 text-base text-zinc-300 transition hover:border-red-500/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+											>
+												+
+											</button>
+										</div>
+									</div>
+									<span className={`day-progress mt-3 ${thisWeek >= weekGoal ? 'done' : ''}`} role="progressbar" aria-valuenow={Math.min(thisWeek, weekGoal)} aria-valuemin={0} aria-valuemax={weekGoal} aria-label="Progreso de la meta semanal">
+										<span style={{ width: `${Math.round((Math.min(thisWeek, weekGoal) / weekGoal) * 100)}%` }} />
+									</span>
+									<p className="mt-2 text-xs leading-relaxed text-zinc-500">
+										{thisWeek >= weekGoal
+											? `Meta cumplida: ${thisWeek} de ${weekGoal}. Mantén el ritmo.`
+											: `Esta semana llevas ${thisWeek} de ${weekGoal}. Te ${weekGoal - thisWeek === 1 ? 'falta 1' : `faltan ${weekGoal - thisWeek}`}.`}
+									</p>
+									<p className={`mt-1 text-xs leading-relaxed ${weekGoal >= 7 ? 'text-amber-300/90' : 'text-zinc-400'}`} aria-live="polite">
+										{weekGoalTip(weekGoal)}
+									</p>
+								</section>
+								<section className="glass-card rounded-2xl p-5">
 									<h2 className="text-xs font-bold uppercase tracking-widest text-zinc-500">Gráficas</h2>
 									{statsLoading ? (
 										<p className="mt-3 text-sm text-zinc-500">Calculando tus stats…</p>
@@ -2147,28 +2652,67 @@ function App() {
 									) : chartData.length === 0 ? (
 										<p className="mt-3 text-sm text-zinc-500">Sin sesiones terminadas todavía. Tus gráficas aparecen aquí.</p>
 									) : (
-										<div className="mt-3 flex flex-col gap-5">
-											<div>
-												<div className="mb-1 flex items-center justify-between">
-													<p className="text-sm font-bold text-white">Calorías por sesión</p>
-													<p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-														<span className="inline-block h-2 w-2 rounded-full bg-red-500" aria-hidden="true" /> Fuerza
-														<span className="inline-block h-2 w-2 rounded-full bg-amber-500" aria-hidden="true" /> Cardio
-														<span className="inline-block h-2 w-2 rounded-full bg-sky-400" aria-hidden="true" /> Calent.
-													</p>
-												</div>
-												<CalorieBars data={chartData.map((r) => ({ id: r.id, label: `${r.name} · ${r.label}`, short: r.short, strength: r.strengthKcal, cardio: r.cardioKcal, warmup: r.warmupKcal }))} />
+									<div className="mt-3 flex flex-col gap-5">
+										<div>
+											<div className="mb-1 flex items-center justify-between">
+												<p className="text-sm font-bold text-white">Calorías por sesión</p>
+												<p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+													<span className="inline-block h-2 w-2 rounded-full bg-red-500" aria-hidden="true" /> Fuerza
+													<span className="inline-block h-2 w-2 rounded-full bg-amber-500" aria-hidden="true" /> Cardio
+													<span className="inline-block h-2 w-2 rounded-full bg-sky-400" aria-hidden="true" /> Calent.
+												</p>
 											</div>
-											<div>
-												<p className="mb-1 text-sm font-bold text-white">Volumen movido por sesión</p>
-												<TrendLine data={chartData.map((r) => ({ id: r.id, label: `${r.name} · ${r.label}`, short: r.short, value: r.volumeKg }))} color="#38bdf8" unit="kg" />
-											</div>
-											<div>
-												<p className="mb-1 text-sm font-bold text-white">Peso máximo por sesión</p>
-												<TrendLine data={chartData.map((r) => ({ id: r.id, label: `${r.name} · ${r.label}`, short: r.short, value: r.maxLb }))} color="#22c55e" unit="lb" />
-											</div>
-											<p className="text-[11px] leading-relaxed text-zinc-600">Estimaciones aproximadas: fuerza ≈ 1 kcal por cada 20 kg movidos · cardio = 8 MET × tu peso × tiempo · calentamiento = 3.5 MET × tu peso × tiempo.</p>
+											<CalorieBars data={chartData.map((r) => ({ id: r.id, label: `${r.name} · ${r.label}`, short: r.short, strength: r.strengthKcal, cardio: r.cardioKcal, warmup: r.warmupKcal }))} />
+											<p className="mt-1 text-xs leading-relaxed text-zinc-500">
+												Promedio ~{Math.round(kcalAvg)} kcal por sesión{kcalBest ? ` · Tu mejor: ~${Math.round(kcalBest.totalKcal)} kcal el ${kcalBest.label}` : ''}. El número sobre cada barra es el total de esa sesión.
+											</p>
 										</div>
+										<div>
+											<p className="mb-1 text-sm font-bold text-white">Constancia semanal</p>
+											<WeekBars data={weekData} goal={weekGoal} />
+											<p className="mt-1 text-xs leading-relaxed text-zinc-500">
+												Esta semana llevas {thisWeek} de {weekGoal} sesiones de tu meta. Las barras verdes la cumplen; la roja es la semana en curso.
+											</p>
+										</div>
+										<div>
+											<p className="mb-1 text-sm font-bold text-white">Peso total movido por sesión</p>
+											<TrendLine data={chartData.map((r) => ({ id: r.id, label: `${r.name} · ${r.label}`, short: r.short, value: r.volumeKg }))} color="#38bdf8" unit="kg" />
+											<p className="mt-1 text-xs leading-relaxed text-zinc-500">
+												{chartData.length > 1 ? (volDelta >= 0 ? `Vas subiendo: +${volDelta}% desde tu primera sesión.` : `Vas ${volDelta}% respecto a tu primera sesión: toca superarla.`) : 'Tu base está marcada: completa más sesiones para ver tu progreso.'}
+											</p>
+										</div>
+										<div>
+											<p className="mb-1 text-sm font-bold text-white">Tus récords por ejercicio</p>
+											{exerciseRecords.length === 0 ? (
+												<p className="mt-2 text-sm text-zinc-500">Aún sin marcas registradas.</p>
+											) : (
+												<>
+													<ul className="mt-2 flex flex-col gap-2">
+														{visibleRecords.map((r) => (
+															<li key={r.name} className="glass-inset flex items-center justify-between gap-3 rounded-xl px-4 py-3">
+																<span className="min-w-0">
+																	<span className="block truncate text-sm font-bold text-white">{r.name}</span>
+																	<span className="mt-0.5 block text-xs text-zinc-500">{r.date ? new Date(r.date).toLocaleDateString() : 'Fecha desconocida'}</span>
+																</span>
+																<strong className="shrink-0 text-sm font-black text-amber-300">{displayWeight(r.maxLb, weightUnit)} {weightUnit} × {r.reps}</strong>
+															</li>
+														))}
+													</ul>
+													{exerciseRecords.length > 6 && (
+														<button
+															type="button"
+															onClick={() => setShowAllRecords((v) => !v)}
+															className="mt-2 w-full rounded-xl border border-white/10 px-4 py-2 text-[11px] font-bold uppercase tracking-widest text-zinc-400 transition hover:border-white/25 hover:text-white"
+														>
+															{showAllRecords ? 'Ver menos' : `Ver todos (${exerciseRecords.length})`}
+														</button>
+													)}
+												</>
+											)}
+											<p className="mt-2 text-xs leading-relaxed text-zinc-500">Tu mejor marca en cada ejercicio, con las repeticiones que hiciste ese día.</p>
+										</div>
+										<p className="text-[11px] leading-relaxed text-zinc-600">Estimaciones aproximadas: fuerza ≈ 1 kcal por cada 20 kg movidos · cardio = 8 MET × tu peso × tiempo · calentamiento = 3.5 MET × tu peso × tiempo.</p>
+									</div>
 									)}
 								</section>
 								<section className="glass-card rounded-2xl p-5">
@@ -2256,17 +2800,20 @@ function App() {
 									</button>
 								</section>
 								<section className="glass-card rounded-2xl p-5">
-									<h2 className="text-xs font-bold uppercase tracking-widest text-zinc-500">Accesos</h2>
+									<h2 className="text-xs font-bold uppercase tracking-widest text-zinc-500">Tus datos</h2>
+									<p className="mt-1 text-xs leading-relaxed text-zinc-500">Borrar tu historial no toca tus rutinas ni tu perfil.</p>
 									<div className="mt-3 flex flex-col gap-2">
-										<button type="button" onClick={() => handleNav('home')} className="glass-inset flex min-h-12 w-full items-center justify-between rounded-xl px-4 text-left text-sm font-bold text-white transition hover:border-red-500/60">
-											<span>Ir a inicio</span>
-											<span className="text-red-500">→</span>
-										</button>
-										<button type="button" onClick={() => handleNav('history')} className="glass-inset flex min-h-12 w-full items-center justify-between rounded-xl px-4 text-left text-sm font-bold text-white transition hover:border-red-500/60">
-											<span>Ver historial</span>
-											<span className="text-red-500">→</span>
+										<button
+											type="button"
+											onClick={wipeHistory}
+											className={`min-h-12 w-full rounded-xl border px-4 text-[11px] font-bold uppercase tracking-widest transition ${confirmWipe ? 'border-red-500/60 bg-red-500/15 text-red-300' : 'border-white/10 text-zinc-500 hover:border-white/25 hover:text-zinc-300'}`}
+										>
+											{confirmWipe ? 'Toca de nuevo para borrar todo' : 'Borrar historial'}
 										</button>
 									</div>
+									{dataMsg && (
+										<p className="mt-2 text-xs text-zinc-400" aria-live="polite">{dataMsg}</p>
+									)}
 								</section>
 								<section className="glass-card rounded-2xl p-5">
 									<h2 className="text-xs font-bold uppercase tracking-widest text-zinc-500">Cuenta</h2>
@@ -2282,6 +2829,7 @@ function App() {
 				{isResting && (
 					<RestPill label={restLabel} seconds={restLeft} onReturn={returnToTraining} theme={theme} />
 				)}
+				<Snackbar snack={snack} onClose={closeSnack} />
 				<BottomNav value={currentView} onChange={handleNav} theme={theme} />
 				{showOnboarding && (
 					<OnboardingModal
@@ -2316,104 +2864,115 @@ function App() {
 						<h1 className="hero-title max-w-xs text-5xl font-black leading-[0.95] tracking-tight">Tu semana.</h1>
 						<p className="mt-5 max-w-md text-base leading-relaxed text-zinc-400">Visualiza tu entrenamiento y llega preparado a cada sesión.</p>
 					</div>
-					<div className="glass-card flex w-fit self-start rounded-xl p-1" role="tablist" aria-label="Vista del calendario">
-						<button
-							type="button"
-							role="tab"
-							aria-selected={calendarView === 'list'}
-							onClick={() => setCalendarView('list')}
-							className={`view-tab rounded-lg px-4 py-2 text-xs font-bold uppercase tracking-widest transition ${calendarView === 'list' ? 'bg-red-500 text-white' : 'text-zinc-500 hover:text-white'}`}
-						>
-							Lista
-						</button>
-						<button
-							type="button"
-							role="tab"
-							aria-selected={calendarView === 'grid'}
-							onClick={() => setCalendarView('grid')}
-							className={`view-tab rounded-lg px-4 py-2 text-xs font-bold uppercase tracking-widest transition ${calendarView === 'grid' ? 'bg-red-500 text-white' : 'text-zinc-500 hover:text-white'}`}
-						>
-							Cuadrícula
-						</button>
-					</div>
+					<button
+						type="button"
+						onClick={() => setEditingWeek((v) => !v)}
+						aria-pressed={editingWeek}
+						className={`w-fit self-start rounded-xl border px-4 py-2 text-xs font-bold uppercase tracking-widest transition ${editingWeek ? 'border-red-500/60 bg-red-500 text-white' : 'border-white/10 text-zinc-400 hover:border-white/25 hover:text-white'}`}
+					>
+						{editingWeek ? 'Listo' : 'Editar'}
+					</button>
 				</div>
 			</section>
-			<section key={calendarView} className="view-switch glass-card relative z-10 overflow-hidden rounded-2xl shadow-2xl shadow-black/20">
+			<section className="view-switch glass-card relative z-10 overflow-hidden rounded-2xl shadow-2xl shadow-black/20">
 				<div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
 					<div>
 						<p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">Calendario semanal</p>
 						<h2 className="mt-1 text-xl font-black text-white">Lunes a domingo</h2>
 					</div>
-					<span className="text-xs font-bold uppercase tracking-widest text-red-500">5 sesiones</span>
+					{editingWeek ? (
+						<button type="button" onClick={resetWeekOrder} className="text-xs font-bold uppercase tracking-widest text-zinc-500 transition hover:text-red-400">
+							Restablecer
+						</button>
+					) : (
+						<span className="text-xs font-bold uppercase tracking-widest text-red-500">{trainingCount} {trainingCount === 1 ? 'sesión' : 'sesiones'}</span>
+					)}
 				</div>
-				{calendarView === 'list' ? (
-					<div className="divide-y divide-white/10">
-						{weekSchedule.map((entry) => {
-							const day = workoutDays.find((workout) => workout.id === entry.workoutId)
-							if (entry.rest) {
-								return (
-									<div key={entry.day} className="calendar-item flex min-h-24 items-center justify-between px-5 py-4 opacity-60">
+				{editingWeek && (
+					<p className="border-b border-white/10 px-5 py-2 text-xs leading-relaxed text-zinc-500">Mueve cada rutina a otro día con las flechas. Los días quedan fijos (Lun-Dom), nada se abre mientras editas y el orden se guarda solo para tu usuario.</p>
+				)}
+				<div className="day-list">
+					{dayRows.map((entry, idx) => {
+						const day = workoutDays.find((workout) => workout.id === entry.workoutId)
+						// Nombre del contenido para las etiquetas ("Mover X al Jueves").
+						// Si el vecino tiene lo mismo (dos descansos), la flecha se apaga.
+						const contentName = entry.rest ? 'Descanso' : (day?.name ?? 'Rutina')
+						const upName = idx > 0 ? dayRows[idx - 1].fullDay : ''
+						const downName = idx < dayRows.length - 1 ? dayRows[idx + 1].fullDay : ''
+						const moveBox = editingWeek && (
+							<MoveButtons
+								upLabel={`Mover ${contentName} al ${upName}`}
+								downLabel={`Mover ${contentName} al ${downName}`}
+								canUp={idx > 0 && !sameSlot(weekMap[idx], weekMap[idx - 1])}
+								canDown={idx < dayRows.length - 1 && !sameSlot(weekMap[idx], weekMap[idx + 1])}
+								onMove={(dir) => moveWeekDay(idx, dir)}
+							/>
+						)
+						if (entry.rest) {
+							return (
+								<div key={entry.day} style={{ '--d': `${idx * 45}ms` }} className="day-row is-rest flex min-h-24 items-center justify-between gap-2 px-5 py-4">
+									<span className="flex items-center gap-4">
+										<span className="w-10 text-xs font-bold uppercase tracking-widest text-zinc-500">{entry.day}</span>
+										<span>
+											<strong className="block text-lg font-black text-white">Descanso</strong>
+											<span className="mt-1 block text-sm text-zinc-500">Recuperación y movilidad</span>
+										</span>
+									</span>
+									{moveBox || <span className="text-sm text-zinc-600">—</span>}
+								</div>
+							)
+						}
+						const done = Object.values(seriesByDay[day.id] ?? {}).filter((v) => v === 2).length + (cardioByDay[day.id] ? 1 : 0) + (warmupByDay[day.id] ? 1 : 0)
+						const total = day.exercises.length + 2
+						const pct = total ? Math.round((done / total) * 100) : 0
+						if (editingWeek) {
+							return (
+								<div key={entry.day} style={{ '--d': `${idx * 45}ms` }} className="day-row flex min-h-24 w-full flex-col justify-center gap-2 px-5 py-4 text-left">
+									<span className="flex items-center justify-between gap-2">
 										<span className="flex items-center gap-4">
-											<span className="w-10 text-xs font-bold uppercase tracking-widest text-zinc-500">{entry.day}</span>
+											<span className={`day-badge flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-sm font-black text-[#0b0d0c] ${day.accent}`}>{entry.day}</span>
 											<span>
-												<strong className="block text-lg font-black text-white">Descanso</strong>
-												<span className="mt-1 block text-sm text-zinc-500">Recuperación y movilidad</span>
+												<strong className="block text-lg font-black text-white">{day.name}</strong>
+												<span className="mt-1 block text-sm text-zinc-500">{day.focus} · {done}/{total} ✓</span>
 											</span>
 										</span>
-										<span className="text-sm text-zinc-600">—</span>
-									</div>
-								)
-							}
-							const done = Object.values(seriesByDay[day.id] ?? {}).filter((v) => v === 2).length + (cardioByDay[day.id] ? 1 : 0) + (warmupByDay[day.id] ? 1 : 0)
-							return (
-								<button key={entry.day} type="button" onClick={() => selectDay(day.id)} className="calendar-item group flex min-h-24 w-full items-center justify-between px-5 py-4 text-left transition hover:bg-white/5">
+										{moveBox}
+									</span>
+									<span className={`day-progress ${done === total ? 'done' : ''}`} role="progressbar" aria-valuenow={done} aria-valuemin={0} aria-valuemax={total} aria-label={`Progreso de ${day.name}`}>
+										<span style={{ width: `${pct}%` }} />
+									</span>
+								</div>
+							)
+						}
+						return (
+							<button key={entry.day} type="button" onClick={() => selectDay(day.id)} style={{ '--d': `${idx * 45}ms` }} className="day-row group flex min-h-24 w-full flex-col justify-center gap-2 px-5 py-4 text-left">
+								<span className="flex items-center justify-between gap-2">
 									<span className="flex items-center gap-4">
-										<span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-sm font-black text-[#0b0d0c] ${day.accent}`}>{entry.day}</span>
+										<span className={`day-badge flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-sm font-black text-[#0b0d0c] ${day.accent}`}>{entry.day}</span>
 										<span>
 											<strong className="block text-lg font-black text-white">{day.name}</strong>
-											<span className="mt-1 block text-sm text-zinc-500">{day.focus} · {done}/{day.exercises.length + 2} ✓</span>
+											<span className="mt-1 block text-sm text-zinc-500">{day.focus} · {done}/{total} ✓</span>
 										</span>
 									</span>
 									<span className="text-2xl text-zinc-600 transition group-hover:translate-x-1 group-hover:text-red-500">→</span>
-								</button>
-							)
+								</span>
+								<span className={`day-progress ${done === total ? 'done' : ''}`} role="progressbar" aria-valuenow={done} aria-valuemin={0} aria-valuemax={total} aria-label={`Progreso de ${day.name}`}>
+									<span style={{ width: `${pct}%` }} />
+								</span>
+							</button>
+						)
 						})}
 					</div>
-				) : (
-					<div className="calendar-scroll overflow-x-auto p-3">
-						<div className="grid min-w-[700px] grid-cols-7 gap-2">
-							{weekSchedule.map((entry) => {
-								const day = workoutDays.find((workout) => workout.id === entry.workoutId)
-								if (entry.rest) {
-									return (
-										<div key={entry.day} className="calendar-item min-h-44 rounded-xl border border-dashed border-white/10 bg-white/[0.02] p-3 opacity-60">
-											<span className="text-xs font-bold uppercase tracking-widest text-zinc-500">{entry.day}</span>
-											<p className="mt-8 text-sm font-bold text-zinc-400">Descanso</p>
-											<p className="mt-1 text-xs leading-relaxed text-zinc-600">Recuperación</p>
-										</div>
-									)
-								}
-								return (
-									<button key={entry.day} type="button" onClick={() => selectDay(day.id)} className="calendar-item glass-cell group min-h-44 rounded-xl border border-white/10 p-3 text-left transition hover:-translate-y-1 hover:border-red-500/60 hover:bg-white/10">
-										<span className={`flex h-9 w-9 items-center justify-center rounded-lg text-xs font-black text-[#0b0d0c] ${day.accent}`}>{entry.day}</span>
-										<strong className="mt-5 block text-sm font-black leading-tight text-white">{day.name}</strong>
-										<span className="mt-2 block text-xs leading-relaxed text-zinc-500">{day.focus}</span>
-										<span className="mt-5 block text-[10px] font-bold uppercase tracking-widest text-red-500">Ver sesión</span>
-									</button>
-								)
-							})}
-						</div>
-					</div>
-				)}
 			</section>
 			<footer className="relative z-10 mt-12 flex items-center justify-between border-t border-white/10 pt-5 text-xs font-bold uppercase tracking-widest text-zinc-600">
-				<span>Plan de 5 días</span>
+				<span>Plan de {trainingCount} {trainingCount === 1 ? 'día' : 'días'}</span>
 				<span>Fuerza + cardio</span>
 			</footer>
 			</main>
 			{isResting && (
 				<RestPill label={restLabel} seconds={restLeft} onReturn={returnToTraining} theme={theme} />
 			)}
+			<Snackbar snack={snack} onClose={closeSnack} />
 			<BottomNav value={currentView} onChange={handleNav} theme={theme} />
 				{showOnboarding && (
 					<OnboardingModal

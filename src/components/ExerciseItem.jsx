@@ -1,6 +1,21 @@
 import { memo, useMemo, useRef, useState } from 'react'
 import { ATTRIBUTION, DATASET_REPO, getMediaCandidates, getRepoVideoUrl } from '../services/exercisesApi.js'
 
+// lb (número, como se guarda) → texto en la unidad visible del usuario.
+const LB_PER_KG = 2.20462
+
+function formatLb(lb, unit) {
+  const n = Number(lb)
+  if (!Number.isFinite(n)) return '—'
+  const v = unit === 'kg' ? n / LB_PER_KG : n
+  return String(Math.round(v * 10) / 10)
+}
+
+function shortDate(iso) {
+  const t = new Date(iso)
+  return Number.isNaN(t.getTime()) ? '' : t.toLocaleDateString()
+}
+
 function useMediaRunner(candidates, posters) {
   const [idx, setIdx] = useState(0)
   const [failed, setFailed] = useState(false)
@@ -130,7 +145,7 @@ function VariantCarousel({ items, activeId, onSelect }) {
   )
 }
 
-function ExerciseItem({ name, reps, note, index, checked, partial, blocked, lastWeight, weightUnit = 'lb', onToggle, expanded, onExpand, bundle }) {
+function ExerciseItem({ name, reps, note, index, checked, partial, blocked, lastWeight, lastReps, weightUnit = 'lb', history, onToggle, expanded, onExpand, bundle }) {
   const [activeId, setActiveId] = useState(null)
   const [enlarged, setEnlarged] = useState(false)
   const primary = bundle?.primary ?? null
@@ -176,12 +191,13 @@ function ExerciseItem({ name, reps, note, index, checked, partial, blocked, last
         </button>
       </div>
       <div className="exercise-foot">
-        <span className="exercise-reps">{reps}</span>
+        {/* El objetivo del plan es estático: se muestra tu última marca y el
+            plan queda como referencia en el tooltip. Sin historial, el plan. */}
+        <span className="exercise-reps" title={lastWeight != null ? `Plan: ${reps}` : undefined}>
+          {lastWeight != null ? `${lastWeight} ${weightUnit} × ${lastReps ?? '—'}` : reps}
+        </span>
         {(checked || partial) && (
           <span className="foot-chip series-chip">{checked ? '2/2 ✓' : `1/2${blocked ? ' · descansa' : ''}`}</span>
-        )}
-        {!checked && !partial && lastWeight != null && (
-          <span className="foot-chip dim">Últ: {lastWeight} {weightUnit}</span>
         )}
         {primary && (
           <>
@@ -207,6 +223,19 @@ function ExerciseItem({ name, reps, note, index, checked, partial, blocked, last
                     <span key={t} className="detail-chip">{t}</span>
                   ))}
                 </div>
+                {history && history.length > 0 && (
+                  <div className="glass-inset rounded-xl p-3">
+                    <p className="text-[11px] font-bold uppercase tracking-widest text-zinc-500">Tu historial</p>
+                    <ul className="mt-2 flex flex-col gap-1">
+                      {history.map((h, i) => (
+                        <li key={`${h.created_at}-${h.set_number}-${i}`} className="flex items-center justify-between gap-2 text-xs">
+                          <span className="font-bold text-white">{formatLb(h.weight_kg, weightUnit)} {weightUnit} × {h.reps} reps</span>
+                          <span className="shrink-0 text-zinc-500">{shortDate(h.created_at)}{h.set_number ? ` · S${h.set_number}` : ''}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 <p className="detail-name">{active.name}</p>
                 {bundle?.pair && active.id === primary.id && (
                   <p className="detail-pair">Biserie: alterna con <strong>{bundle.pair.name}</strong> ({bundle.pair.equipment})</p>

@@ -31,6 +31,11 @@ function formatRest(total) {
 	return `${m}:${String(s).padStart(2, '0')}`
 }
 
+// Sin autofoco en táctil: abriría el teclado tapando medio modal.
+const FINE_POINTER = typeof window !== 'undefined'
+	&& typeof window.matchMedia === 'function'
+	&& window.matchMedia('(pointer: fine)').matches
+
 function ActiveWorkout({ user, routineId, sessionId: initialSessionId = null, onFinish, onExit }) {
 	const [items, setItems] = useState([])
 	const [loading, setLoading] = useState(true)
@@ -104,6 +109,19 @@ function ActiveWorkout({ user, routineId, sessionId: initialSessionId = null, on
 			if (intervalRef.current) clearInterval(intervalRef.current)
 		}
 	}, [])
+
+	// Modal abierto = fondo bloqueado (sin scroll de la página detrás).
+	useEffect(() => {
+		if (modal == null) return
+		const prevOverflow = document.body.style.overflow
+		const prevOverscroll = document.body.style.overscrollBehavior
+		document.body.style.overflow = 'hidden'
+		document.body.style.overscrollBehavior = 'none'
+		return () => {
+			document.body.style.overflow = prevOverflow
+			document.body.style.overscrollBehavior = prevOverscroll
+		}
+	}, [modal])
 
 	useEffect(() => {
 		if (!user?.id || !routineId) return
@@ -378,8 +396,8 @@ function ActiveWorkout({ user, routineId, sessionId: initialSessionId = null, on
 				{isBlocked ? `Bloqueado ${formatRest(restLeft)}` : 'Terminar entrenamiento'}
 			</button>
 			{modal && (
-				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5" role="dialog" aria-modal="true" aria-label={`Registrar serie ${modal.setNumber}`}>
-					<div className="glass-card w-full max-w-sm rounded-2xl p-5">
+				<div className="fixed inset-0 z-50 flex overflow-y-auto overscroll-contain bg-black/70 p-4 sm:p-5" role="dialog" aria-modal="true" aria-label={`Registrar serie ${modal.setNumber}`}>
+					<div className="glass-card modal-card m-auto w-full max-w-sm rounded-2xl p-5">
 						<h3 className="text-lg font-black text-white">{modal.exerciseName} · Serie {modal.setNumber}/2</h3>
 						<p className="mt-1 text-xs uppercase tracking-widest text-zinc-500">Objetivo {modal.target_reps ?? '—'} reps · Descanso {modal.rest_seconds}s</p>
 						<form onSubmit={confirmSet} className="mt-4 flex flex-col gap-3">
@@ -405,7 +423,7 @@ function ActiveWorkout({ user, routineId, sessionId: initialSessionId = null, on
 									value={weight}
 									onChange={(e) => setWeight(e.target.value)}
 									placeholder={unit === 'kg' ? 'ej. 60' : 'ej. 135'}
-									autoFocus
+									autoFocus={FINE_POINTER}
 									className="glass-inset rounded-xl px-4 py-3 text-sm normal-case tracking-normal text-white placeholder:text-zinc-600"
 								/>
 							</label>
