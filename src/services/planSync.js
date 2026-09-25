@@ -77,44 +77,88 @@ export async function ensureDayRows(supabase, userId, workout) {
 	return { routineId, byIndex }
 }
 
-export async function fetchLastWeights(supabase, userId, exerciseIds) {
-	if (exerciseIds.length === 0) return {}
+// IDs de ejercicios por nombre (para heredar historial de renombres).
+export async function fetchExerciseIdsByNames(supabase, userId, names) {
+	const clean = [...new Set((names ?? []).filter(Boolean))]
+	if (clean.length === 0) return {}
+	const { data, error } = await supabase
+		.from('exercises')
+		.select('id, name')
+		.eq('user_id', userId)
+		.in('name', clean)
+	if (error) throw error
+	const map = {}
+	for (const row of data ?? []) {
+		if (row?.name && row?.id != null) map[row.name] = row.id
+	}
+	return map
+}
+
+// Rellena huecos: si el id nuevo no tiene dato y su alias sí, lo hereda.
+// Puro y testeable; vale para objetos (último peso) y listas (recientes).
+export function applyHistoryAliases(map, aliasMap) {
+	const out = { ...(map ?? {}) }
+	for (const [newId, oldId] of Object.entries(aliasMap ?? {})) {
+		if (newId == null || oldId == null) continue
+		const cur = out[newId]
+		const empty = cur == null || (Array.isArray(cur) && cur.length === 0)
+		if (empty && out[oldId] != null) out[newId] = out[oldId]
+	}
+	return out
+}
+
+export async function fetchLastWeights(supabase, userId, exerciseIds, aliasMap = {}) {
+	const all = [...new Set([...(exerciseIds ?? []), ...Object.values(aliasMap ?? {}).filter((v) => v != null)])]
+	if (all.length === 0) return {}
 	const { data, error } = await supabase
 		.from('set_logs')
 		.select('exercise_id, weight_kg, reps')
 		.eq('user_id', userId)
-		.in('exercise_id', exerciseIds)
+		.in('exercise_id', all)
 		.order('created_at', { ascending: false })
 	if (error) throw error
 	const map = {}
 	for (const row of data ?? []) {
 		if (!map[row.exercise_id]) map[row.exercise_id] = row
 	}
-	return map
+	return applyHistoryAliases(map, aliasMap)
 }
 
 // Últimas series por ejercicio (para el historial del acordeón).
 // Devuelve { [exercise_id]: [{ weight_kg, reps, set_number, created_at }] }
 // en orden reciente → antiguo, recortado a `perExercise` por ejercicio.
-export async function fetchRecentLogs(supabase, userId, exerciseIds, perExercise = 4) {
-	if (exerciseIds.length === 0) return {}
+export async function fetchRecentLogs(supabase, userId, exerciseIds, perExercise = 4, aliasMap = {}) {
+	const all = [...new Set([...(exerciseIds ?? []), ...Object.values(aliasMap ?? {}).filter((v) => v != null)])]
+	if (all.length === 0) return {}
 	const { data, error } = await supabase
 		.from('set_logs')
 		.select('exercise_id, set_number, weight_kg, reps, created_at')
 		.eq('user_id', userId)
-		.in('exercise_id', exerciseIds)
+		.in('exercise_id', all)
 		.order('created_at', { ascending: false })
-		.limit(Math.max(20, exerciseIds.length * perExercise * 2))
+		.limit(Math.max(20, all.length * perExercise * 2))
 	if (error) throw error
 	const map = {}
 	for (const row of data ?? []) {
 		const list = map[row.exercise_id] ?? (map[row.exercise_id] = [])
 		if (list.length < perExercise) list.push(row)
 	}
-	return map
+	return applyHistoryAliases(map, aliasMap)
 }
 
-export async function saveDaySession(supabase, userId, routineId, byIndex, weights, startedAt, extras = null) {
+// Nombres de ejercicios del usuario (para el combobox de extras).
+export async function fetchUserExerciseNames(supabase, userId) {
+	const { data, error } = await supabase
+		.from('exercises')
+		.select('name')
+		.eq('user_id', userId)
+		.order('name', { ascending: true })
+		.limit(200)
+	if (error) throw error
+	return [...new Set((data ?? []).map((r) => r.name).filter(Boolean))]
+}
+
+export async function saveDaySession(supabase, userId, routineId, byIndex, weights, startedAt, extras = null, customSets = []) {
 	const notes = extras
 		? JSON.stringify({
 			...(extras.cardioMin != null ? { cardioMin: extras.cardioMin, cardioKcal: extras.cardioKcal, ...(extras.cardioMachineKcal != null ? { cardioMachineKcal: extras.cardioMachineKcal } : {}) } : {}),
@@ -154,6 +198,27 @@ export async function saveDaySession(supabase, userId, routineId, byIndex, weigh
 	if (rows.length > 0) {
 		const { error: logsError } = await supabase.from('set_logs').insert(rows)
 		if (logsError) throw logsError
+	}
+	// Ejercicios extra del día (no cuentan para el completado, sí para kcal
+	// e historial). Los set_number continúan después de los del plan para el
+	// mismo ejercicio y así respetar el UNIQUE(session, exercise, set).
+	for (const c of customSets ?? []) {
+		const name = typeof c?.name === 'string' ? c.name.trim() : ''
+		const sets = Array.isArray(c?.sets) ? c.sets.filter((s) => s && Number.isFinite(Number(s.weight)) && Number.isFinite(Number(s.reps))) : []
+		if (!name || sets.length === 0) continue
+		const exerciseId = await findOrCreateExercise(supabase, userId, name)
+		let next = rows.reduce((m, r) => (r.exercise_id === exerciseId ? Math.max(m, r.set_number) : m), 0)
+		const customRows = sets.map((s) => ({
+			user_id: userId,
+			session_id: session.id,
+			exercise_id: exerciseId,
+			set_number: ++next,
+			weight_kg: Math.round(Number(s.weight) * 100) / 100,
+			reps: parseInt(s.reps, 10),
+		}))
+		const { error: customError } = await supabase.from('set_logs').insert(customRows)
+		if (customError) throw customError
+		rows.push(...customRows)
 	}
 	return session.id
 }

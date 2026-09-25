@@ -1,4 +1,6 @@
 import { memo, useMemo, useRef, useState } from 'react'
+import { formatRest } from '../lib/format.js'
+import { translateTerm, translateTerms } from '../lib/terms.js'
 import { ATTRIBUTION, DATASET_REPO, getMediaCandidates, getRepoVideoUrl } from '../services/exercisesApi.js'
 
 // lb (número, como se guarda) → texto en la unidad visible del usuario.
@@ -92,7 +94,7 @@ function VariantCarousel({ items, activeId, onSelect }) {
   return (
     <div className="carousel">
       <div className="carousel-head">
-        <p className="detail-alts-title">Variantes · misma zona ({items[0].bodyPart})</p>
+        <p className="detail-alts-title">Variantes · misma zona ({translateTerm(items[0].bodyPart) ?? items[0].bodyPart})</p>
         <div className="carousel-nav">
           <button type="button" onClick={() => scrollBy(-1)} aria-label="Variantes anteriores" className="carousel-btn">
             <svg viewBox="0 0 16 16" aria-hidden="true" className="carousel-icon">
@@ -120,7 +122,7 @@ function VariantCarousel({ items, activeId, onSelect }) {
               aria-selected={active}
               onClick={() => onSelect(v.id)}
               className={`variant-card ${active ? 'active' : ''}`}
-              title={`${v.name} — ${v.equipment}`}
+              title={`${v.name} — ${translateTerm(v.equipment) ?? v.equipment}`}
             >
               {thumb ? (
                 <img src={thumb} alt="" loading="lazy" decoding="async" draggable={false} className="variant-thumb" onError={(e) => {
@@ -136,7 +138,7 @@ function VariantCarousel({ items, activeId, onSelect }) {
                 <span className="variant-thumb variant-thumb-icon" aria-hidden="true">TL</span>
               )}
               <span className="variant-name">{v.id === items[0].id ? `${v.name} · principal` : v.name}</span>
-              <span className="variant-equip">{v.equipment}</span>
+              <span className="variant-equip">{translateTerm(v.equipment) ?? v.equipment}</span>
             </button>
           )
         })}
@@ -145,12 +147,17 @@ function VariantCarousel({ items, activeId, onSelect }) {
   )
 }
 
-function ExerciseItem({ name, reps, note, index, checked, partial, blocked, lastWeight, lastReps, weightUnit = 'lb', history, onToggle, expanded, onExpand, bundle }) {
+function ExerciseItem({ name, reps, note, index, checked, partial, blocked, restLeft = 0, lastWeight, lastReps, weightUnit = 'lb', history, onToggle, expanded, onExpand, bundle }) {
   const [activeId, setActiveId] = useState(null)
   const [enlarged, setEnlarged] = useState(false)
   const primary = bundle?.primary ?? null
   const active = bundle?.items.find((v) => v.id === (activeId ?? primary?.id)) ?? primary
-  const steps = primary?.steps ?? []
+  // Pasos de la variante ACTIVA (cambian con el carrusel); si la variante no
+  // trae propios, se usan los de la principal. Sin párrafo de texto.
+  const steps = (active?.steps?.length > 0 ? active.steps : primary?.steps) ?? []
+  // Serie en curso (misma máquina de estados que la casilla: onToggle la avanza).
+  const series = checked ? 2 : partial ? 1 : 0
+  const resting = blocked && restLeft > 0
 
   return (
     <div className={`exercise-row ${checked ? 'is-checked' : ''} ${partial ? 'is-partial' : ''} ${expanded ? 'is-expanded' : ''}`}>
@@ -199,10 +206,40 @@ function ExerciseItem({ name, reps, note, index, checked, partial, blocked, last
         {(checked || partial) && (
           <span className="foot-chip series-chip">{checked ? '2/2 ✓' : `1/2${blocked ? ' · descansa' : ''}`}</span>
         )}
+        {/* Affordance explícito: la casilla sola no dejaba claro que son 2
+            marcas. Mismo onToggle (misma máquina de estados y descanso). */}
+        {series === 0 && (
+          <button
+            type="button"
+            className="set-btn"
+            disabled={blocked}
+            onClick={onToggle}
+            aria-label={`Marcar serie 1 de ${name}`}
+            title="Anota el peso y las repeticiones de la serie 1"
+          >
+            Marcar serie 1
+          </button>
+        )}
+        {series === 1 && (
+          <button
+            type="button"
+            className="set-btn"
+            disabled={blocked}
+            onClick={onToggle}
+            aria-label={resting ? `Serie 2 de ${name} disponible al terminar el descanso` : `Marcar serie 2 de ${name}`}
+            title={resting ? 'Descansa antes de la serie 2' : 'Anota el peso y las repeticiones de la serie 2'}
+          >
+            {resting ? (
+              <>Serie 2 · <span aria-hidden="true" className="tabular-nums">{formatRest(restLeft)}</span></>
+            ) : (
+              'Marcar serie 2'
+            )}
+          </button>
+        )}
         {primary && (
           <>
-            <span className="foot-chip">{primary.target}</span>
-            <span className="foot-chip dim">{primary.equipment}</span>
+            <span className="foot-chip">{translateTerm(primary.target) ?? primary.target}</span>
+            <span className="foot-chip dim">{translateTerm(primary.equipment) ?? primary.equipment}</span>
           </>
         )}
       </div>
@@ -219,7 +256,7 @@ function ExerciseItem({ name, reps, note, index, checked, partial, blocked, last
                   onToggleSize={() => setEnlarged((v) => !v)}
                 />
                 <div className="detail-tags">
-                  {[active.target, active.bodyPart, active.equipment].filter(Boolean).map((t) => (
+                  {translateTerms([active.target, active.bodyPart, active.equipment]).map((t) => (
                     <span key={t} className="detail-chip">{t}</span>
                   ))}
                 </div>
@@ -238,15 +275,17 @@ function ExerciseItem({ name, reps, note, index, checked, partial, blocked, last
                 )}
                 <p className="detail-name">{active.name}</p>
                 {bundle?.pair && active.id === primary.id && (
-                  <p className="detail-pair">Biserie: alterna con <strong>{bundle.pair.name}</strong> ({bundle.pair.equipment})</p>
+                  <p className="detail-pair">Biserie: alterna con <strong>{bundle.pair.name}</strong> ({translateTerm(bundle.pair.equipment) ?? bundle.pair.equipment})</p>
                 )}
-                {primary.es && <p className="detail-instructions">{primary.es}</p>}
                 {steps.length > 0 && (
-                  <ol className="detail-steps">
-                    {steps.slice(0, 3).map((s, i) => (
-                      <li key={i}>{s}</li>
-                    ))}
-                  </ol>
+                  <div>
+                    <p className="detail-steps-title">Cómo hacerlo</p>
+                    <ol className="detail-steps">
+                      {steps.map((s, i) => (
+                        <li key={i}>{s}</li>
+                      ))}
+                    </ol>
+                  </div>
                 )}
                 {bundle?.items && (
                   <VariantCarousel items={bundle.items} activeId={active.id} onSelect={(id) => { setActiveId(id); setEnlarged(false) }} />
