@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useState } from 'react'
 
 // Gráficas SVG puras del perfil, sin dependencias.
 
@@ -104,49 +104,161 @@ export const WeekBars = memo(function WeekBars({ data, goal = 5 }) {
 	)
 })
 
-// Línea de tendencia genérica (p. ej. peso total movido por sesión). SVG puro.
-export const TrendLine = memo(function TrendLine({ data, color = '#22c55e', unit = '' }) {
+// Línea de tendencia (p. ej. peso movido por sesión o por parte del cuerpo). SVG puro.
+// Al pulsar cualquier nodo muestra qué parte del cuerpo fue, la sesión/fecha y los kilos exactos.
+export const TrendLine = memo(function TrendLine({ data, color = '#22c55e', unit = 'kg', bodyPartLabel = '' }) {
+	const [selectedId, setSelectedId] = useState(null)
 	if (data.length === 0) return null
 	const W = 340
-	const H = 130
+	const H = 136
 	const PAD_L = 38
 	const PAD_B = 20
-	const PAD_T = 14
+	const PAD_T = 18
 	const vals = data.map((d) => d.value)
 	const max = Math.max(...vals)
 	const min = Math.min(...vals)
 	const span = max - min || 1
-	const innerW = W - PAD_L - 8
+	const innerW = W - PAD_L - 10
 	const innerH = H - PAD_T - PAD_B
 	const px = (i) => PAD_L + (data.length === 1 ? innerW / 2 : (innerW * i) / (data.length - 1))
 	const py = (v) => PAD_T + innerH * (1 - (v - min) / span)
 	const points = data.map((d, i) => `${px(i)},${py(d.value)}`).join(' ')
 	const last = data[data.length - 1]
+	const activeIndex = data.findIndex((d) => d.id === selectedId)
+	const activePoint = activeIndex >= 0 ? data[activeIndex] : null
+	const toggleNode = (id) => {
+		setSelectedId((cur) => (cur === id ? null : id))
+	}
 	return (
-		<svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label={`Tendencia ${unit}`}>
-			{[0, 0.5, 1].map((f) => {
-				const v = min + span * f
-				const y = py(v)
-				return (
-					<g key={f}>
-						<line x1={PAD_L} y1={y} x2={W - 8} y2={y} stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
-						<text x={PAD_L - 4} y={y + 3} textAnchor="end" fontSize="8" fill="#71717a">{Math.round(v)}</text>
+		<div>
+			<svg viewBox={`0 0 ${W} ${H}`} className="w-full select-none" role="img" aria-label={`Tendencia ${bodyPartLabel ? `${bodyPartLabel} ` : ''}${unit}`}>
+				{[0, 0.5, 1].map((f) => {
+					const v = min + span * f
+					const y = py(v)
+					return (
+						<g key={f}>
+							<line x1={PAD_L} y1={y} x2={W - 8} y2={y} stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
+							<text x={PAD_L - 4} y={y + 3} textAnchor="end" fontSize="8" fill="#71717a">{Math.round(v)}</text>
+						</g>
+					)
+				})}
+				{activePoint && (
+					<g pointerEvents="none">
+						<line
+							x1={px(activeIndex)}
+							y1={PAD_T}
+							x2={px(activeIndex)}
+							y2={PAD_T + innerH}
+							stroke={color}
+							strokeWidth="1"
+							strokeDasharray="3 3"
+							opacity="0.55"
+						/>
+						<line
+							x1={PAD_L}
+							y1={py(activePoint.value)}
+							x2={W - 8}
+							y2={py(activePoint.value)}
+							stroke={color}
+							strokeWidth="1"
+							strokeDasharray="3 3"
+							opacity="0.4"
+						/>
 					</g>
-				)
-			})}
-			<polyline points={points} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-			{data.map((d, i) => (
-				<g key={d.id}>
-					<title>{`${d.label}: ${Math.round(d.value)} ${unit}`}</title>
-					<circle cx={px(i)} cy={py(d.value)} r={i === data.length - 1 ? 4.5 : 3} fill={color} stroke="#0b0d0c" strokeWidth="1.5" />
-					{i % Math.ceil(data.length / 6) === 0 && (
-						<text x={px(i)} y={H - 6} textAnchor="middle" fontSize="8" fill="#71717a">{d.short}</text>
-					)}
-				</g>
-			))}
-			<text x={W - 10} y={py(last.value) - 8} textAnchor="end" fontSize="10" fontWeight="800" fill={color}>
-				{Math.round(last.value)} {unit}
-			</text>
-		</svg>
+				)}
+				<polyline points={points} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+				{data.map((d, i) => {
+					const isSelected = activePoint?.id === d.id
+					const partText = d.bodyPart || bodyPartLabel || 'General'
+					const cx = px(i)
+					const cy = py(d.value)
+					return (
+						<g key={d.id}>
+							<title>{`${partText} · ${d.label}: ${Math.round(d.value).toLocaleString()} ${unit}`}</title>
+							{isSelected && (
+								<circle cx={cx} cy={cy} r={8} fill={color} opacity="0.28" pointerEvents="none" />
+							)}
+							<circle
+								cx={cx}
+								cy={cy}
+								r={isSelected ? 5 : (i === data.length - 1 ? 4.5 : 3.5)}
+								fill={color}
+								stroke={isSelected ? '#ffffff' : '#0b0d0c'}
+								strokeWidth="1.5"
+								pointerEvents="none"
+							/>
+							<circle
+								cx={cx}
+								cy={cy}
+								r={13}
+								fill="transparent"
+								style={{ cursor: 'pointer' }}
+								role="button"
+								tabIndex={0}
+								aria-pressed={isSelected}
+								aria-label={`${partText} · ${d.label}: ${Math.round(d.value)} ${unit}`}
+								onClick={() => toggleNode(d.id)}
+								onKeyDown={(e) => {
+									if (e.key === 'Enter' || e.key === ' ') {
+										e.preventDefault()
+										toggleNode(d.id)
+									}
+								}}
+							/>
+							{i % Math.ceil(data.length / 6) === 0 && (
+								<text x={cx} y={H - 5} textAnchor="middle" fontSize="8" fill={isSelected ? color : '#71717a'} fontWeight={isSelected ? 800 : 400}>
+									{d.short}
+								</text>
+							)}
+						</g>
+					)
+				})}
+				{activePoint ? (
+					<text
+						x={Math.min(W - 10, Math.max(PAD_L + 10, px(activeIndex)))}
+						y={Math.max(11, py(activePoint.value) - 8)}
+						textAnchor={px(activeIndex) > W - 65 ? 'end' : px(activeIndex) < PAD_L + 55 ? 'start' : 'middle'}
+						fontSize="10"
+						fontWeight="800"
+						fill={color}
+						pointerEvents="none"
+					>
+						{Math.round(activePoint.value).toLocaleString()} {unit}
+					</text>
+				) : (
+					<text x={W - 10} y={Math.max(11, py(last.value) - 8)} textAnchor="end" fontSize="10" fontWeight="800" fill={color} pointerEvents="none">
+						{Math.round(last.value).toLocaleString()} {unit}
+					</text>
+				)}
+			</svg>
+			{activePoint ? (
+				<div className="glass-inset mt-2 flex items-start justify-between gap-2 rounded-xl px-3 py-2 text-xs" role="status" aria-live="polite">
+					<div className="min-w-0">
+						<p className="font-bold text-white">
+							<span className="mr-1.5 inline-block h-2 w-2 rounded-full align-middle" style={{ backgroundColor: color }} aria-hidden="true" />
+							Parte del cuerpo: <span style={{ color }}>{activePoint.bodyPart || bodyPartLabel || 'General'}</span>
+							{' · '}
+							<strong className="font-black text-white">{Math.round(activePoint.value).toLocaleString()} {unit}</strong>
+						</p>
+						<p className="mt-0.5 text-[11px] text-zinc-400">
+							{activePoint.label}
+							{activePoint.breakdown ? ` · ${activePoint.breakdown}` : ''}
+						</p>
+					</div>
+					<button
+						type="button"
+						onClick={() => setSelectedId(null)}
+						aria-label="Cerrar detalle del nodo"
+						className="shrink-0 rounded-lg px-1.5 py-0.5 text-xs font-bold text-zinc-400 transition hover:text-white"
+					>
+						×
+					</button>
+				</div>
+			) : (
+				<p className="mt-1 text-[11px] text-zinc-500">
+					Pulsa cualquier nodo para ver la parte del cuerpo y los {unit} exactos.
+				</p>
+			)}
+		</div>
 	)
 })

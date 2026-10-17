@@ -1,9 +1,11 @@
-import { workoutDays, sameSlot } from '../data/plan.js'
+import { workoutDays, sameSlot, findTemplateForMap, SPLIT_TEMPLATES } from '../data/plan.js'
 import BackgroundOrbs from '../components/BackgroundOrbs.jsx'
 import RestPill from '../components/RestPill.jsx'
 import Snackbar from '../components/Snackbar.jsx'
 import BottomNav from '../components/BottomNav.jsx'
 import MoveButtons from '../components/MoveButtons.jsx'
+import CustomSelect from '../components/CustomSelect.jsx'
+import SplitPickerModal from '../components/SplitPickerModal.jsx'
 import OnboardingModal from '../components/OnboardingModal.jsx'
 
 export default function HomePage({
@@ -12,7 +14,11 @@ export default function HomePage({
 	doneIds, resetWeekdayLabel, tryOpenDay,
 	currentView, handleNav, isResting, restLabel, restLeft, returnToTraining,
 	snack, closeSnack, onboarding,
+	showSplitPicker, setShowSplitPicker, onApplySplit, onSelectDayRoutine,
 }) {
+	const currentSplit = findTemplateForMap(weekMap)
+	const currentSplitName = SPLIT_TEMPLATES.find((t) => t.id === currentSplit)?.name ?? 'Semana personalizada'
+	const routineOptions = workoutDays.map((w) => ({ value: String(w.id), label: `${w.name} · ${w.focus}` }))
 	return (
 		<>
 			<main className={`screen-enter theme-${theme} app-shell mx-auto min-h-screen max-w-lg px-5 pb-28 text-white`}>
@@ -45,17 +51,23 @@ export default function HomePage({
 					<div>
 						<p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">Calendario semanal</p>
 						<h2 className="mt-1 text-xl font-black text-white">Lunes a domingo</h2>
+						<p className="mt-0.5 text-[11px] font-bold uppercase tracking-widest text-zinc-500">Split: {currentSplitName}</p>
 					</div>
 					{editingWeek ? (
-						<button type="button" onClick={resetWeekOrder} className="text-xs font-bold uppercase tracking-widest text-zinc-500 transition hover:text-red-400">
-							Restablecer
-						</button>
+						<span className="flex shrink-0 flex-col items-end gap-2">
+							<button type="button" onClick={() => setShowSplitPicker(true)} className="rounded-xl bg-red-500 px-4 py-2 text-xs font-bold uppercase tracking-widest text-white transition hover:brightness-110">
+								Splits
+							</button>
+							<button type="button" onClick={resetWeekOrder} className="text-xs font-bold uppercase tracking-widest text-zinc-500 transition hover:text-red-400">
+								Restablecer
+							</button>
+						</span>
 					) : (
 						<span className="text-xs font-bold uppercase tracking-widest text-red-500">{trainingCount} {trainingCount === 1 ? 'sesión' : 'sesiones'}</span>
 					)}
 				</div>
 				{editingWeek && (
-					<p className="border-b border-white/10 px-5 py-2 text-xs leading-relaxed text-zinc-500">Mueve cada rutina a otro día con las flechas. Los días quedan fijos (Lun-Dom), nada se abre mientras editas y el orden se guarda solo para tu usuario.</p>
+					<p className="border-b border-white/10 px-5 py-2 text-xs leading-relaxed text-zinc-500">Mueve cada rutina con las flechas, elige un split famoso con el botón Splits (PPL, Arnold…) o asigna la rutina de cada día abajo. Los días quedan fijos (Lun-Dom) y todo se guarda solo para tu usuario.</p>
 				)}
 				<div className="day-list">
 					{dayRows.map((entry, idx) => {
@@ -76,15 +88,26 @@ export default function HomePage({
 						)
 						if (entry.rest) {
 							return (
-								<div key={entry.day} style={{ '--d': `${idx * 45}ms` }} className="day-row is-rest flex min-h-24 items-center justify-between gap-2 px-5 py-4">
-									<span className="flex items-center gap-4">
-										<span className="w-10 text-xs font-bold uppercase tracking-widest text-zinc-500">{entry.day}</span>
-										<span>
-											<strong className="block text-lg font-black text-white">Descanso</strong>
-											<span className="mt-1 block text-sm text-zinc-500">Recuperación y movilidad</span>
+								<div key={entry.day} style={{ '--d': `${idx * 45}ms` }} className="day-row is-rest flex min-h-24 flex-col justify-center gap-2 px-5 py-4">
+									<span className="flex items-center justify-between gap-2">
+										<span className="flex items-center gap-4">
+											<span className="w-10 text-xs font-bold uppercase tracking-widest text-zinc-500">{entry.day}</span>
+											<span>
+												<strong className="block text-lg font-black text-white">Descanso</strong>
+												<span className="mt-1 block text-sm text-zinc-500">Recuperación y movilidad</span>
+											</span>
 										</span>
+										{editingWeek ? moveBox : <span className="text-sm text-zinc-600">—</span>}
 									</span>
-									{moveBox || <span className="text-sm text-zinc-600">—</span>}
+									{editingWeek && (
+										<CustomSelect
+											value=""
+											onChange={(v) => onSelectDayRoutine(idx, v === '' ? null : Number(v))}
+											options={routineOptions}
+											placeholder="Asignar rutina a este día…"
+											ariaLabel={`Rutina del ${entry.fullDay}`}
+										/>
+									)}
 								</div>
 							)
 						}
@@ -109,6 +132,13 @@ export default function HomePage({
 									<span className={`day-progress ${done === total ? 'done' : ''}`} role="progressbar" aria-valuenow={done} aria-valuemin={0} aria-valuemax={total} aria-label={`Progreso de ${day.name}`}>
 										<span style={{ width: `${pct}%` }} />
 									</span>
+									<CustomSelect
+										value={String(day.id)}
+										onChange={(v) => onSelectDayRoutine(idx, v === '' ? null : Number(v))}
+										options={routineOptions}
+										placeholder="Descanso"
+										ariaLabel={`Rutina del ${entry.fullDay}`}
+									/>
 								</div>
 							)
 						}
@@ -155,6 +185,15 @@ export default function HomePage({
 					saving={onboarding.saving}
 					onSubmit={onboarding.onSubmit}
 					onSkip={onboarding.onSkip}
+				/>
+			)}
+			{showSplitPicker && (
+				<SplitPickerModal
+					theme={theme}
+					weekMap={weekMap}
+					onApply={onApplySplit}
+					onSelectDay={onSelectDayRoutine}
+					onClose={() => setShowSplitPicker(false)}
 				/>
 			)}
 		</>

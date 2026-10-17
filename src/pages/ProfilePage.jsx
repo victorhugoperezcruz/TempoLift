@@ -1,4 +1,4 @@
-import { sessionsByWeek, dayStreak } from '../lib/health.js'
+import { sessionsByWeek, dayStreak, VOLUME_CHARTS } from '../lib/health.js'
 import { displayWeight } from '../lib/weights.js'
 import { weekGoalTip } from '../data/plan.js'
 import BackgroundOrbs from '../components/BackgroundOrbs.jsx'
@@ -13,6 +13,7 @@ import { CalorieBars, WeekBars, TrendLine } from '../components/Charts.jsx'
 
 export default function ProfilePage({
 	theme, showProfileSkel, sbLoading, statsLoading, sbSessions, statsRows, statsError,
+	enabledVolumeCharts = [], toggleVolumeChart, setAllVolumeCharts,
 	exerciseRecords, showAllRecords, setShowAllRecords, session,
 	weightUnit, switchWeightUnit, weekGoal, changeWeekGoal,
 	profile, bodyKg, profileForm, setProfileForm, profileMsg, profileSaving, saveProfileForm,
@@ -22,22 +23,67 @@ export default function ProfilePage({
 }) {
 	// Carga inicial con latencia: skeleton estilo imagen.
 	// En refetch con datos ya visibles no se usa (stale-while-revalidate).
-	if (showProfileSkel) return <ProfileSkeleton />
+	// Va dentro del <main> con el tema para que en modo claro el esqueleto
+	// sea gris (.theme-light .skel) y no oscuro.
+	if (showProfileSkel) {
+		return (
+			<main className={`screen-enter theme-${theme} app-shell mx-auto min-h-screen max-w-lg px-5 pb-28 text-white`}>
+				<BackgroundOrbs />
+				<div className="relative z-10 pt-6">
+					<ProfileSkeleton />
+				</div>
+			</main>
+		)
+	}
 	const finished = sbSessions.filter((s) => s.ended_at)
 	const last = finished[0]
 	const email = session.user?.email ?? ''
 	const initial = (email.charAt(0) || 'T').toUpperCase()
-// statsRows viene en orden reciente → antiguo: se invierte para graficar cronológico
-const chartData = [...statsRows].reverse().slice(-10)
-// Resúmenes en lenguaje simple para acompañar cada gráfica
-const kcalAvg = chartData.length > 0 ? chartData.reduce((a, r) => a + r.totalKcal, 0) / chartData.length : 0
-const kcalBest = chartData.length > 0 ? chartData.reduce((a, b) => (b.totalKcal > a.totalKcal ? b : a)) : null
-const weekData = sessionsByWeek(finished.map((s) => s.started_at), 8)
-const thisWeek = weekData.length > 0 ? weekData[weekData.length - 1].value : 0
-const volFirst = chartData.length > 0 ? chartData[0].volumeKg : 0
-const volLast = chartData.length > 0 ? chartData[chartData.length - 1].volumeKg : 0
-const volDelta = volFirst > 0 ? Math.round(((volLast - volFirst) / volFirst) * 100) : 0
-const visibleRecords = showAllRecords ? exerciseRecords : exerciseRecords.slice(0, 6)
+	// statsRows viene en orden reciente → antiguo: se invierte para graficar cronológico
+	const chronoRows = [...statsRows].reverse()
+	const chartData = chronoRows.slice(-10)
+	// Resúmenes en lenguaje simple para acompañar cada gráfica
+	const kcalAvg = chartData.length > 0 ? chartData.reduce((a, r) => a + r.totalKcal, 0) / chartData.length : 0
+	const kcalBest = chartData.length > 0 ? chartData.reduce((a, b) => (b.totalKcal > a.totalKcal ? b : a)) : null
+	const weekData = sessionsByWeek(finished.map((s) => s.started_at), 8)
+	const thisWeek = weekData.length > 0 ? weekData[weekData.length - 1].value : 0
+	// Series por cada gráfica de volumen (por parte del cuerpo + total general).
+	// Cada gráfica de parte del cuerpo filtra solo las sesiones donde se trabajó
+	// esa zona, evitando picos irreales al alternar días de pierna con brazo.
+	const volumeSeriesByChart = Object.fromEntries(
+		VOLUME_CHARTS.map((c) => {
+			if (c.id === 'total') {
+				const withVol = chronoRows.filter((r) => r.volumeKg > 0)
+				const source = (withVol.length > 0 ? withVol : chronoRows).slice(-10)
+				return [
+					c.id,
+					source.map((r) => ({
+						id: `${r.id}-total`,
+						label: `${r.name} · ${r.label}`,
+						short: r.short,
+						value: r.volumeKg,
+						bodyPart: r.bodyPartsLabel || r.name,
+						breakdown: r.breakdownLabel || '',
+					})),
+				]
+			}
+			const source = chronoRows.filter((r) => (r.volumeByPart?.[c.id] ?? 0) > 0).slice(-10)
+			return [
+				c.id,
+				source.map((r) => ({
+					id: `${r.id}-${c.id}`,
+					label: `${r.name} · ${r.label}`,
+					short: r.short,
+					value: r.volumeByPart[c.id],
+					bodyPart: c.label,
+				})),
+			]
+		}),
+	)
+	const allVolumeEnabled = VOLUME_CHARTS.every((c) => enabledVolumeCharts.includes(c.id))
+	const noneVolumeEnabled = enabledVolumeCharts.length === 0
+	const activeVolumeCharts = VOLUME_CHARTS.filter((c) => enabledVolumeCharts.includes(c.id))
+	const visibleRecords = showAllRecords ? exerciseRecords : exerciseRecords.slice(0, 6)
 	return (
 		<>
 			<main className={`screen-enter theme-${theme} app-shell mx-auto min-h-screen max-w-lg px-5 pb-28 text-white`} style={{ backgroundColor: '#0b0d0c' }}>
@@ -159,11 +205,105 @@ const visibleRecords = showAllRecords ? exerciseRecords : exerciseRecords.slice(
 								</p>
 							</div>
 							<div>
-								<p className="mb-1 text-sm font-bold text-white">Peso total movido por sesión</p>
-								<TrendLine data={chartData.map((r) => ({ id: r.id, label: `${r.name} · ${r.label}`, short: r.short, value: r.volumeKg }))} color="#38bdf8" unit="kg" />
+								<div className="flex flex-wrap items-center justify-between gap-2">
+									<p className="text-sm font-bold text-white">Peso total movido por sesión</p>
+									<div className="flex items-center gap-1.5">
+										<button
+											type="button"
+											onClick={() => setAllVolumeCharts(true)}
+											disabled={allVolumeEnabled}
+											className="rounded-lg border border-white/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-zinc-300 transition hover:border-white/25 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+										>
+											Todas
+										</button>
+										<button
+											type="button"
+											onClick={() => setAllVolumeCharts(false)}
+											disabled={noneVolumeEnabled}
+											className="rounded-lg border border-white/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-zinc-300 transition hover:border-white/25 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+										>
+											Ninguna
+										</button>
+									</div>
+								</div>
 								<p className="mt-1 text-xs leading-relaxed text-zinc-500">
-									{chartData.length > 1 ? (volDelta >= 0 ? `Vas subiendo: +${volDelta}% desde tu primera sesión.` : `Vas ${volDelta}% respecto a tu primera sesión: toca superarla.`) : 'Tu base está marcada: completa más sesiones para ver tu progreso.'}
+									Habilita o deshabilita gráficas separadas por parte del cuerpo para evitar picos al mezclar días de pierna con días de brazo.
 								</p>
+								<div className="mt-2.5 flex flex-wrap gap-1.5" role="group" aria-label="Habilitar o deshabilitar gráficas de peso movido">
+									{VOLUME_CHARTS.map((c) => {
+										const active = enabledVolumeCharts.includes(c.id)
+										const count = volumeSeriesByChart[c.id]?.length ?? 0
+										return (
+											<button
+												key={c.id}
+												type="button"
+												aria-pressed={active}
+												onClick={() => toggleVolumeChart(c.id)}
+												className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-bold transition ${
+													active
+														? 'border-white/25 bg-white/10 text-white'
+														: 'border-white/10 bg-transparent text-zinc-500 opacity-65 hover:border-white/20 hover:text-zinc-300'
+												}`}
+											>
+												<span
+													className="inline-block h-2 w-2 rounded-full"
+													style={{ backgroundColor: c.color, opacity: active ? 1 : 0.45 }}
+													aria-hidden="true"
+												/>
+												<span>{c.label}</span>
+												<span className="text-[10px] text-zinc-400">({count})</span>
+											</button>
+										)
+									})}
+								</div>
+								{activeVolumeCharts.length === 0 ? (
+									<p className="glass-inset mt-3 rounded-xl px-3.5 py-3 text-xs text-zinc-400">
+										Todas las gráficas de peso movido están deshabilitadas. Pulsa una parte del cuerpo arriba o «Todas» para verlas.
+									</p>
+								) : (
+									<div className="mt-3 flex flex-col gap-3">
+										{activeVolumeCharts.map((c) => {
+											const series = volumeSeriesByChart[c.id] ?? []
+											const firstVal = series.length > 0 ? series[0].value : 0
+											const lastVal = series.length > 0 ? series[series.length - 1].value : 0
+											const delta = firstVal > 0 ? Math.round(((lastVal - firstVal) / firstVal) * 100) : 0
+											return (
+												<div key={c.id} className="glass-inset rounded-xl p-3.5">
+													<div className="mb-1 flex items-center justify-between gap-2">
+														<p className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-white">
+															<span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: c.color }} aria-hidden="true" />
+															{c.id === 'total' ? 'Total sesión (todas las partes)' : `Solo ${c.label.toLowerCase()}`}
+														</p>
+														<span className="text-[11px] font-bold text-zinc-400">
+															{series.length} {series.length === 1 ? 'sesión' : 'sesiones'}
+														</span>
+													</div>
+													{series.length === 0 ? (
+														<p className="mt-1 text-xs text-zinc-500">
+															Sin sesiones de {c.label.toLowerCase()} registradas todavía.
+														</p>
+													) : (
+														<>
+															<TrendLine
+																data={series}
+																color={c.color}
+																unit="kg"
+																bodyPartLabel={c.id === 'total' ? '' : c.label}
+															/>
+															<p className="mt-1.5 text-xs leading-relaxed text-zinc-500">
+																{series.length > 1
+																	? (delta >= 0
+																		? `Vas subiendo: +${delta}% en ${c.label.toLowerCase()} desde tu primera sesión.`
+																		: `Vas ${delta}% respecto a tu primera sesión de ${c.label.toLowerCase()}: toca superarla.`)
+																	: `Tu base de ${c.label.toLowerCase()} está marcada (${Math.round(lastVal).toLocaleString()} kg): completa más sesiones para ver tu progreso.`}
+															</p>
+														</>
+													)}
+												</div>
+											)
+										})}
+									</div>
+								)}
 							</div>
 							<div>
 								<p className="mb-1 text-sm font-bold text-white">Tus récords por ejercicio</p>

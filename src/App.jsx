@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from './supabaseClient.js'
 import { BootSkeleton } from './components/Skeleton.jsx'
 import { useDelayedVisible } from './hooks/useDelayedVisible.js'
 import { ensureDayRows, fetchExerciseIdsByNames, fetchLastWeights, fetchRecentLogs, fetchUserExerciseNames, saveDaySession } from './services/planSync.js'
+import { getCatalogExerciseNames, getExerciseBundle } from './services/exercisesApi.js'
 import {
 	DEFAULT_WEEK_MAP, DEFAULT_BODY_KG, DEFAULT_CARDIO_MIN, DEFAULT_WARMUP_MIN,
 	ROUTINES_BY_GOAL, WARMUP_MET, LB_TO_KG, KCAL_PER_KG_MOVED,
@@ -10,10 +11,14 @@ import {
 	buildWeekMapForGoal, readWeekMap, persistWeekMap,
 	readWeekGoal, persistWeekGoal, weightHintFor, EXERCISE_RENAMES,
 } from './data/plan.js'
+import { readRoutineOverrides, persistRoutineOverrides, applyRoutineOverrides } from './lib/routineOverrides.js'
 import { readWeightUnit, persistWeightUnit, displayWeight, displayToLb, convertInputUnit, bodyKgToDisplay, displayToBodyKg } from './lib/weights.js'
 import { readTheme, persistTheme, readProfileLocal, persistProfileLocal, readBodyKg, readBodyKgFor, isProfileComplete } from './lib/profile.js'
 import { friendlyError, markProfilesChecked, isProfilesTableMissing, upsertProfile } from './lib/supabaseErrors.js'
-import { strengthKcalFromWeights, cardioKcalFor, parseSessionExtras } from './lib/health.js'
+import {
+	strengthKcalFromWeights, cardioKcalFor, parseSessionExtras,
+	DEFAULT_VOLUME_CHART_IDS, readVolumeCharts, persistVolumeCharts, sessionVolumeByBodyPart,
+} from './lib/health.js'
 import { readActiveWorkout, persistActiveWorkout, clearActiveWorkout, hasNonEmptyValue, hasOtherDayProgress } from './lib/draft.js'
 import { trainingWeekStart, readDoneJournal, appendDoneJournal, removeDoneJournalByName, clearDoneJournal } from './lib/weekly.js'
 import { useAuth } from './hooks/useAuth.js'
@@ -35,6 +40,12 @@ function App() {
 	// Meta semanal de sesiones de este usuario (1 a 7).
 	const [weekGoal, setWeekGoal] = useState(() => readWeekGoal(null))
 	const [editingWeek, setEditingWeek] = useState(false)
+	// Modal de splits famosos + asignación manual por día.
+	const [showSplitPicker, setShowSplitPicker] = useState(false)
+	// Sustituciones de ejercicios por rutina, por usuario (ver routineOverrides).
+	const [routineOverrides, setRoutineOverrides] = useState(() => readRoutineOverrides(null))
+	// Modo edición dentro de la rutina (sustituir ejercicios).
+	const [editingRoutine, setEditingRoutine] = useState(false)
 	const [theme, setTheme] = useState(() => readTheme())
 	const [openPhase, setOpenPhase] = useState('strength')
 	// Series por ejercicio: { [workoutId]: { [index]: 1 | 2 } }. Solo suma al progreso con las 2 series.
@@ -128,6 +139,8 @@ function App() {
 	const [statsLoading, setStatsLoading] = useState(false)
 	const [statsRows, setStatsRows] = useState([])
 	const [statsError, setStatsError] = useState('')
+	// Gráficas de peso movido activas (por parte del cuerpo + total)
+	const [enabledVolumeCharts, setEnabledVolumeCharts] = useState(() => readVolumeCharts(null))
 	// Mejor marca por ejercicio (para la lista de récords del perfil)
 	const [exerciseRecords, setExerciseRecords] = useState([])
 	const [showAllRecords, setShowAllRecords] = useState(false)
@@ -145,7 +158,17 @@ function App() {
 	// cambiar de día con un borrador activo de otro día).
 	const dayStartDayRef = useRef(null)
 
-	const selectedWorkout = workoutDays.find((day) => day.id === selectedDay) ?? null
+	// Rutinas efectivas = base del plan + sustituciones del usuario.
+	// El nombre de la rutina no cambia, solo sus ejercicios (reps/nota base).
+	// Memoizada por overrides: la referencia de cada rutina sin cambios se
+	// conserva para no re-disparar la sincronización con Supabase.
+	const effectiveWorkouts = useMemo(() => workoutDays.map((w) => {
+		const ov = routineOverrides[w.id]
+		if (!ov || Object.keys(ov).length === 0) return w
+		return { ...w, exercises: applyRoutineOverrides(w.exercises, ov) }
+	}), [routineOverrides])
+	const selectedWorkout = effectiveWorkouts.find((day) => day.id === selectedDay) ?? null
+	const swappedIdxs = selectedWorkout ? Object.keys(routineOverrides[selectedWorkout.id] ?? {}).map(Number) : []
 
 	const seriesMap = selectedWorkout ? (seriesByDay[selectedWorkout.id] ?? {}) : {}
 	const checkedList = Object.entries(seriesMap).filter(([, v]) => v === 2).map(([k]) => Number(k))
@@ -506,8 +529,10 @@ function App() {
 
 	const customId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
 
-	// Abrir "Agregar ejercicio": trae los ejercicios de la BD del usuario
-	// para el combobox (más texto libre para estrenar).
+	// Abrir "Agregar ejercicio": catálogo completo separado por equipo
+	// (47 ejercicios) + ejercicios propios de la BD del usuario.
+	// Así el principiante elige "Remo en T en máquina" o "Skull crusher con
+	// mancuernas" sin confundirlos, y sigue valiendo el texto libre.
 	const openCustomCreate = () => {
 		if (!selectedWorkout || restLeft > 0 || weightModal || cardioModal || warmupModal || customCreate || customModal) return
 		setCustomName('')
@@ -515,7 +540,8 @@ function App() {
 		setCustomReps('')
 		setCustomSets(2)
 		setCustomCreate({ workoutId: selectedWorkout.id })
-		setDbExerciseNames([])
+		// Catálogo al instante (sin esperar red): variedad inmediata.
+		setDbExerciseNames(getCatalogExerciseNames())
 		setDbNamesLoading(true)
 		const uid = session?.user?.id
 		if (!uid) {
@@ -523,9 +549,9 @@ function App() {
 			return
 		}
 		fetchUserExerciseNames(supabase, uid).then((names) => {
-			setDbExerciseNames(names ?? [])
+			setDbExerciseNames([...new Set([...getCatalogExerciseNames(), ...(names ?? [])])])
 		}).catch(() => {
-			// sin conexión: igual se puede escribir libre
+			// sin conexión: queda el catálogo local
 		}).finally(() => {
 			setDbNamesLoading(false)
 		})
@@ -691,8 +717,12 @@ function App() {
 		setSelectedDay(id)
 		setLastDay(id)
 		setEditingWeek(false)
+		setEditingRoutine(false)
 	}, [])
-	const goBack = useCallback(() => setSelectedDay(null), [])
+	const goBack = useCallback(() => {
+		setSelectedDay(null)
+		setEditingRoutine(false)
+	}, [])
 	const returnToTraining = useCallback(() => {
 		if (lastDay != null) setSelectedDay(lastDay)
 		setCurrentView('home')
@@ -707,6 +737,8 @@ function App() {
 		setCardioModal(null)
 		setWarmupModal(null)
 		setEditingWeek(false)
+		setEditingRoutine(false)
+		setShowSplitPicker(false)
 		setDataMsg('')
 		setConfirmWipe(false)
 	}, [])
@@ -732,6 +764,106 @@ function App() {
 		setWeekMap(next)
 		persistWeekMap(session?.user?.id, next)
 	}, [session?.user?.id])
+
+	// Aplica un split famoso: reemplaza la semana + ajusta la meta al nº de
+	// días del split. Todo por usuario y reversible (Restablecer / manual).
+	const applySplit = useCallback((template) => {
+		const next = template.map.map((s) => ({ ...s }))
+		setWeekMap(next)
+		persistWeekMap(session?.user?.id, next)
+		const count = next.filter((s) => !s.rest).length
+		setWeekGoal(count)
+		persistWeekGoal(session?.user?.id, count)
+		setShowSplitPicker(false)
+		showSnack(`${template.name} aplicado: ${count} ${count === 1 ? 'día' : 'días'} por semana`)
+	}, [session?.user?.id, showSnack])
+
+	// Asigna (o quita) la rutina de un día concreto. Sin duplicados: cada
+	// rutina vive una sola vez por semana para que el bloqueo semanal siga
+	// funcionando. La meta se ajusta al nº de días entrenados.
+	const selectDayRoutine = useCallback((dayIdx, workoutIdOrNull) => {
+		const base = weekMap.map((s) => ({ ...s }))
+		if (workoutIdOrNull == null) {
+			base[dayIdx] = { rest: true }
+		} else {
+			const usedElsewhere = base.some((s, i) => i !== dayIdx && !s.rest && s.workoutId === workoutIdOrNull)
+			if (usedElsewhere) {
+				showSnack('Esa rutina ya está en otro día: elige otra o pon descanso', 'warn')
+				return
+			}
+			base[dayIdx] = { workoutId: workoutIdOrNull }
+		}
+		setWeekMap(base)
+		persistWeekMap(session?.user?.id, base)
+		const count = base.filter((s) => !s.rest).length
+		setWeekGoal(count)
+		persistWeekGoal(session?.user?.id, count)
+	}, [weekMap, session?.user?.id, showSnack])
+
+	// Sustituye un ejercicio de la rutina por otro del catálogo y lo guarda
+	// para siempre (por usuario). Limpia el progreso de ese índice porque
+	// el movimiento cambió; la re-sincronización con Supabase la dispara
+	// selectedSignature en el effect de apertura del día.
+	const swapExercise = (workoutId, index, newName) => {
+		if (!getExerciseBundle(newName)) {
+			showSnack('Ese ejercicio no tiene animación disponible')
+			return
+		}
+		const uid = session?.user?.id
+		const wid = Number(workoutId)
+		const idx = Number(index)
+		const base = workoutDays.find((w) => w.id === wid)
+		const baseName = base?.exercises?.[idx]?.[0]
+		setRoutineOverrides((prev) => {
+			const per = { ...(prev[wid] ?? {}) }
+			if (baseName && newName === baseName) delete per[idx]
+			else per[idx] = newName
+			const next = { ...prev }
+			if (Object.keys(per).length === 0) delete next[wid]
+			else next[wid] = per
+			persistRoutineOverrides(uid, next)
+			return next
+		})
+		setSeriesByDay((prev) => {
+			const day = { ...(prev[wid] ?? {}) }
+			delete day[idx]
+			return { ...prev, [wid]: day }
+		})
+		setWeights((prev) => {
+			const day = { ...(prev[wid] ?? {}) }
+			delete day[idx]
+			return { ...prev, [wid]: day }
+		})
+		setDayComplete(false)
+		showSnack(`${newName} guardado en tu rutina`)
+	}
+
+	// Restaura los ejercicios originales de una rutina.
+	const resetRoutine = (workoutId) => {
+		const uid = session?.user?.id
+		const wid = Number(workoutId)
+		const touched = Object.keys(routineOverrides[wid] ?? {})
+		setRoutineOverrides((prev) => {
+			const next = { ...prev }
+			delete next[wid]
+			persistRoutineOverrides(uid, next)
+			return next
+		})
+		if (touched.length > 0) {
+			setSeriesByDay((prev) => {
+				const day = { ...(prev[wid] ?? {}) }
+				for (const k of touched) delete day[k]
+				return { ...prev, [wid]: day }
+			})
+			setWeights((prev) => {
+				const day = { ...(prev[wid] ?? {}) }
+				for (const k of touched) delete day[k]
+				return { ...prev, [wid]: day }
+			})
+		}
+		setDayComplete(false)
+		showSnack('Rutina original restaurada')
+	}
 
 	// Semana de entreno en curso + bloqueos semanales (una rutina por semana).
 	// weekStartIdx = primer día con rutina en el mapa del usuario (su inicio
@@ -1066,6 +1198,8 @@ function App() {
 					volumeKg += lb * LB_TO_KG * reps
 					if (lb > maxLb) maxLb = lb
 				}
+				const rName = sbRoutines.find((r) => r.id === s.routine_id)?.name ?? 'Entrenamiento'
+				const { byPart: volumeByPart, mainPartsLabel: bodyPartsLabel, breakdownLabel } = sessionVolumeByBodyPart(logs, rName)
 				const strengthKcal = volumeKg * KCAL_PER_KG_MOVED
 				const extras = parseSessionExtras(s.notes)
 				const cardioKcal = extras.cardio?.kcal ?? 0
@@ -1077,9 +1211,12 @@ function App() {
 					date: s.started_at,
 					label: Number.isNaN(t.getTime()) ? 'Sesión' : t.toLocaleDateString(),
 					short,
-					name: sbRoutines.find((r) => r.id === s.routine_id)?.name ?? 'Entrenamiento',
+					name: rName,
 					sets: logs.length,
 					volumeKg,
+					volumeByPart,
+					bodyPartsLabel,
+					breakdownLabel,
 					maxLb,
 					strengthKcal,
 					cardioMin: extras.cardio?.minutes ?? 0,
@@ -1099,7 +1236,24 @@ function App() {
 		return () => { cancelled = true }
 	}, [currentView, session?.user?.id, sbSessions, sbRoutines])
 
+	const toggleVolumeChart = useCallback((chartId) => {
+		setEnabledVolumeCharts((prev) => {
+			const exists = prev.includes(chartId)
+			const next = exists ? prev.filter((id) => id !== chartId) : [...prev, chartId]
+			persistVolumeCharts(session?.user?.id, next)
+			return next
+		})
+	}, [session?.user?.id])
+
+	const setAllVolumeCharts = useCallback((enableAll) => {
+		const next = enableAll ? [...DEFAULT_VOLUME_CHART_IDS] : []
+		setEnabledVolumeCharts(next)
+		persistVolumeCharts(session?.user?.id, next)
+	}, [session?.user?.id])
+
 	// Al abrir un día: prepara sus filas en la base de datos y trae el último peso de cada ejercicio.
+	// Depende de la rutina EFECTIVA (con sustituciones del usuario): al
+	// sustituir un ejercicio se re-sincroniza y trae el historial del nuevo.
 	useEffect(() => {
 		if (!session?.user?.id || selectedDay == null) {
 			setPlanIds(null)
@@ -1107,7 +1261,7 @@ function App() {
 			setRecentW({})
 			return
 		}
-		const workout = workoutDays.find((day) => day.id === selectedDay)
+		const workout = selectedWorkout
 		if (!workout) return
 		// No pises el inicio si hay borrador de este mismo día (F5/segundo
 		// plano): conserva la hora real en que empezó el entrenamiento.
@@ -1164,14 +1318,18 @@ function App() {
 			if (!cancelled) setSyncError(friendlyError(err))
 		})
 		return () => { cancelled = true }
-	}, [session?.user?.id, selectedDay])
+	}, [session?.user?.id, selectedDay, selectedWorkout])
 
 	// Orden de la semana por usuario: cada uno organiza sus días sin afectar
 	// a otros. Al cambiar de cuenta se carga el suyo (o el orden por defecto).
 	useEffect(() => {
 		setWeekMap(readWeekMap(session?.user?.id) ?? DEFAULT_WEEK_MAP.map((s) => ({ ...s })))
 		setWeekGoal(readWeekGoal(session?.user?.id))
+		setRoutineOverrides(readRoutineOverrides(session?.user?.id))
+		setEnabledVolumeCharts(readVolumeCharts(session?.user?.id))
 		setEditingWeek(false)
+		setEditingRoutine(false)
+		setShowSplitPicker(false)
 	}, [session?.user?.id])
 
 	// Perfil por usuario: Supabase (tabla profiles) + local por usuario.
@@ -1619,6 +1777,11 @@ function App() {
 				snack={snack}
 				closeSnack={closeSnack}
 				onboarding={{ show: showOnboarding, form: onboarding, setForm: setOnboarding, unit: weightUnit, onSwitchUnit: switchWeightUnit, error: onboardingError, saving: onboardingSaving, onSubmit: submitOnboarding, onSkip: () => setShowOnboarding(false) }}
+				editingRoutine={editingRoutine}
+				setEditingRoutine={setEditingRoutine}
+				onSwapExercise={swapExercise}
+				onResetRoutine={resetRoutine}
+				swappedIdxs={swappedIdxs}
 			/>
 		)
 	}
@@ -1669,6 +1832,9 @@ function App() {
 				sbSessions={sbSessions}
 				statsRows={statsRows}
 				statsError={statsError}
+				enabledVolumeCharts={enabledVolumeCharts}
+				toggleVolumeChart={toggleVolumeChart}
+				setAllVolumeCharts={setAllVolumeCharts}
 				exerciseRecords={exerciseRecords}
 				showAllRecords={showAllRecords}
 				setShowAllRecords={setShowAllRecords}
@@ -1727,6 +1893,10 @@ function App() {
 			snack={snack}
 			closeSnack={closeSnack}
 			onboarding={{ show: showOnboarding, form: onboarding, setForm: setOnboarding, unit: weightUnit, onSwitchUnit: switchWeightUnit, error: onboardingError, saving: onboardingSaving, onSubmit: submitOnboarding, onSkip: () => setShowOnboarding(false) }}
+			showSplitPicker={showSplitPicker}
+			setShowSplitPicker={setShowSplitPicker}
+			onApplySplit={applySplit}
+			onSelectDayRoutine={selectDayRoutine}
 		/>
 	)
 }

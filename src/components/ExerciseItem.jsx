@@ -94,7 +94,7 @@ function VariantCarousel({ items, activeId, onSelect }) {
   return (
     <div className="carousel">
       <div className="carousel-head">
-        <p className="detail-alts-title">Variantes · misma zona ({translateTerm(items[0].bodyPart) ?? items[0].bodyPart})</p>
+        <p className="detail-alts-title">Mismo ejercicio · otro ángulo ({translateTerm(items[0].bodyPart) ?? items[0].bodyPart})</p>
         <div className="carousel-nav">
           <button type="button" onClick={() => scrollBy(-1)} aria-label="Variantes anteriores" className="carousel-btn">
             <svg viewBox="0 0 16 16" aria-hidden="true" className="carousel-icon">
@@ -137,7 +137,7 @@ function VariantCarousel({ items, activeId, onSelect }) {
               ) : (
                 <span className="variant-thumb variant-thumb-icon" aria-hidden="true">TL</span>
               )}
-              <span className="variant-name">{v.id === items[0].id ? `${v.name} · principal` : v.name}</span>
+              <span className="variant-name">{v.id === items[0].id ? `${v.name} · principal` : `${v.name} · otro ángulo`}</span>
               <span className="variant-equip">{translateTerm(v.equipment) ?? v.equipment}</span>
             </button>
           )

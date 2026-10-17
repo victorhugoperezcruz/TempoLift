@@ -28,12 +28,12 @@ export const workoutDays = [
 		focus: 'Torso',
 		accent: 'bg-red-500',
 		exercises: [
-			['Press inclinado', '2 x 8', 'Tempo 3-1-1'],
-			['Remo en T', '2 x 8-10', 'Tempo 3-1-1'],
-			['Press plano', '2 x 8', 'Tempo 3-1-1'],
-			['Jalón a pecho', '2 x 8-10', 'Tempo 3-1-1'],
-			['Pec Fly', '1 x al fallo', 'Tempo 3-1-1'],
-			['Jalón unilateral dorsal', '1 x al fallo', 'Por lado'],
+			['Press inclinado con mancuernas', '2 x 8', 'Tempo 3-1-1'],
+			['Remo inclinado con mancuernas', '2 x 8-10', 'Tempo 3-1-1'],
+			['Press plano con mancuernas', '2 x 8', 'Tempo 3-1-1'],
+			['Jalón al pecho en máquina', '2 x 8-10', 'Tempo 3-1-1'],
+			['Aperturas con mancuernas', '1 x al fallo', 'Tempo 3-1-1'],
+			['Remo a una mano con mancuerna', '1 x al fallo', 'Por lado'],
 		],
 	},
 	{
@@ -44,11 +44,11 @@ export const workoutDays = [
 		focus: 'Cuádriceps y glúteo',
 		accent: 'bg-orange-300',
 		exercises: [
-			['Prensa de piernas', '2 x 10', 'Pies altos'],
-			['Extensión de cuádriceps', '2 x 10-12', 'Tempo 3-1-1'],
-			['Máquina de aductores', '2 x 12', 'Tempo 3-1-1'],
-			['Máquina de abductores', '2 x 12', 'Tempo 3-1-1'],
-			['Pantorrilla', '2 x 12', 'De pie'],
+			['Sentadilla goblet con mancuerna', '2 x 10', 'Mancuerna al pecho'],
+			['Extensión de cuádriceps en máquina', '2 x 10-12', 'Tempo 3-1-1'],
+			['Aductores en máquina', '2 x 12', 'Tempo 3-1-1'],
+			['Abductores en máquina', '2 x 12', 'Tempo 3-1-1'],
+			['Pantorrilla de pie en máquina', '2 x 12', 'De pie'],
 		],
 	},
 	{
@@ -57,12 +57,12 @@ export const workoutDays = [
 		focus: 'Torso',
 		accent: 'bg-sky-300',
 		exercises: [
-			['Press militar', '2 x 8', 'Tempo 3-1-1'],
-			['Elevaciones laterales', '2 x 12', 'Tempo 3-1-1'],
-			['Skull crushers', '2 x 8-10', 'Codos fijos'],
-			['Curl predicador', '2 x 10', 'Tempo 3-1-1'],
-			['Tríceps en polea', '2 x 10', 'Aprieta abajo'],
-			['Curl martillo', '2 x 10', 'Agarre neutro'],
+			['Press militar con mancuernas', '2 x 8', 'Tempo 3-1-1'],
+			['Elevaciones laterales con mancuernas', '2 x 12', 'Tempo 3-1-1'],
+			['Skull crusher con mancuernas', '2 x 8-10', 'Codos fijos'],
+			['Curl predicador con mancuernas', '2 x 10', 'Tempo 3-1-1'],
+			['Patada de tríceps con mancuerna', '2 x 10', 'Codo fijo atrás'],
+			['Curl martillo con mancuernas', '2 x 10', 'Agarre neutro'],
 			['Curl de bíceps en máquina', '2 x 10', 'Tempo 3-1-1'],
 		],
 	},
@@ -72,11 +72,11 @@ export const workoutDays = [
 		focus: 'Isquiosurales y glúteo',
 		accent: 'bg-rose-300',
 		exercises: [
-			['Prensa de piernas', '2 x 10', 'Pies altos'],
-			['Curl de isquiosurales sentado', '2 x 10-12', 'Tempo 3-1-1'],
-			['Patada de glúteo', '2 x 10 por pierna', 'Una pierna a la vez'],
-			['Máquina de abductores', '2 x 12', 'Tempo 3-1-1'],
-			['Pantorrilla', '2 x 12', 'De pie'],
+			['Prensa de piernas en máquina', '2 x 10', 'Pies altos'],
+			['Curl de isquios sentado en máquina', '2 x 10-12', 'Tempo 3-1-1'],
+			['Patada de glúteo en máquina', '2 x 10 por pierna', 'Una pierna a la vez'],
+			['Abductores en máquina', '2 x 12', 'Tempo 3-1-1'],
+			['Pantorrilla de pie en máquina', '2 x 12', 'De pie'],
 		],
 	},
 	{
@@ -85,11 +85,11 @@ export const workoutDays = [
 		focus: 'Pecho, espalda y hombro',
 		accent: 'bg-violet-300',
 		exercises: [
-			['Press inclinado', '2 x 8', 'Tempo 3-1-1'],
-			['Jalón a pecho', '2 x 8-10', 'Tempo 3-1-1'],
-			['Press plano', '2 x 8', 'Tempo 3-1-1'],
-			['Remo en T', '2 x 8-10', 'Tempo 3-1-1'],
-			['Elevaciones laterales', '2 x 12', 'Tempo 3-1-1'],
+			['Press inclinado en máquina', '2 x 8', 'Tempo 3-1-1'],
+			['Jalón agarre invertido en máquina', '2 x 8-10', 'Tempo 3-1-1'],
+			['Press plano en máquina', '2 x 8', 'Tempo 3-1-1'],
+			['Remo en T en máquina', '2 x 8-10', 'Tempo 3-1-1'],
+			['Elevación lateral en máquina', '2 x 12', 'Tempo 3-1-1'],
 		],
 	},
 	{
@@ -98,13 +98,13 @@ export const workoutDays = [
 		focus: 'Full body: pecho, espalda, pierna y brazo',
 		accent: 'bg-emerald-300',
 		exercises: [
-			['Press inclinado', '2 x 8', 'Tempo 3-1-1'],
-			['Remo en T', '2 x 8-10', 'Tempo 3-1-1'],
-			['Prensa de piernas', '2 x 10', 'Pies altos'],
-			['Press militar', '2 x 8', 'Tempo 3-1-1'],
-			['Curl predicador', '2 x 10', 'Tempo 3-1-1'],
-			['Tríceps en polea', '2 x 10', 'Aprieta abajo'],
-			['Pantorrilla', '2 x 12', 'De pie'],
+			['Press inclinado con mancuernas', '2 x 8', 'Tempo 3-1-1'],
+			['Remo en T en máquina', '2 x 8-10', 'Tempo 3-1-1'],
+			['Prensa de piernas en máquina', '2 x 10', 'Pies altos'],
+			['Press militar en máquina', '2 x 8', 'Tempo 3-1-1'],
+			['Curl predicador en máquina', '2 x 10', 'Tempo 3-1-1'],
+			['Tríceps en polea alta', '2 x 10', 'Aprieta abajo'],
+			['Pantorrilla sentado en máquina', '2 x 12', 'Sentado'],
 		],
 	},
 	{
@@ -113,13 +113,84 @@ export const workoutDays = [
 		focus: 'Full body: torso, glúteo e isquios',
 		accent: 'bg-teal-300',
 		exercises: [
-			['Press plano', '2 x 8', 'Tempo 3-1-1'],
-			['Jalón a pecho', '2 x 8-10', 'Tempo 3-1-1'],
-			['Patada de glúteo', '2 x 10 por pierna', 'Una pierna a la vez'],
-			['Curl de isquiosurales sentado', '2 x 10-12', 'Tempo 3-1-1'],
-			['Elevaciones laterales', '2 x 12', 'Tempo 3-1-1'],
-			['Curl martillo', '2 x 10', 'Agarre neutro'],
-			['Máquina de abductores', '2 x 12', 'Tempo 3-1-1'],
+			['Press plano en máquina', '2 x 8', 'Tempo 3-1-1'],
+			['Jalón agarre invertido en máquina', '2 x 8-10', 'Tempo 3-1-1'],
+			['Patada de glúteo en polea', '2 x 10 por pierna', 'Una pierna a la vez'],
+			['Curl de isquios tumbado en máquina', '2 x 10-12', 'Tempo 3-1-1'],
+			['Elevaciones laterales con mancuernas', '2 x 12', 'Tempo 3-1-1'],
+			['Curl martillo en máquina', '2 x 10', 'Agarre neutro'],
+			['Abductores en máquina', '2 x 12', 'Tempo 3-1-1'],
+		],
+	},
+	// ---- Rutinas de splits famosos (ids 8-12, nombres únicos como el resto) ----
+	{
+		id: 8,
+		name: 'Empuje',
+		focus: 'Push: pecho, hombro y tríceps',
+		accent: 'bg-amber-300',
+		exercises: [
+			['Press inclinado con mancuernas', '2 x 8', 'Tempo 3-1-1'],
+			['Press plano en máquina', '2 x 8', 'Tempo 3-1-1'],
+			['Press militar con mancuernas', '2 x 8', 'Tempo 3-1-1'],
+			['Elevaciones laterales con mancuernas', '2 x 12', 'Tempo 3-1-1'],
+			['Skull crusher con mancuernas', '2 x 8-10', 'Codos fijos'],
+			['Tríceps en polea alta', '2 x 10', 'Aprieta abajo'],
+			['Fondos en máquina', '1 x al fallo', 'Tempo 3-1-1'],
+		],
+	},
+	{
+		id: 9,
+		name: 'Tirón',
+		focus: 'Pull: espalda y bíceps',
+		accent: 'bg-indigo-300',
+		exercises: [
+			['Remo en T en máquina', '2 x 8-10', 'Tempo 3-1-1'],
+			['Jalón al pecho en máquina', '2 x 8-10', 'Tempo 3-1-1'],
+			['Remo sentado en máquina', '2 x 10', 'Tempo 3-1-1'],
+			['Remo a una mano con mancuerna', '1 x al fallo', 'Por lado'],
+			['Curl predicador en máquina', '2 x 10', 'Tempo 3-1-1'],
+			['Curl martillo con mancuernas', '2 x 10', 'Agarre neutro'],
+		],
+	},
+	{
+		id: 10,
+		name: 'Pierna PPL',
+		focus: 'Pierna completa: quad, isquio y glúteo',
+		accent: 'bg-lime-300',
+		exercises: [
+			['Prensa de piernas en máquina', '2 x 10', 'Pies altos'],
+			['Extensión de cuádriceps en máquina', '2 x 10-12', 'Tempo 3-1-1'],
+			['Curl de isquios sentado en máquina', '2 x 10-12', 'Tempo 3-1-1'],
+			['Patada de glúteo en máquina', '2 x 10 por pierna', 'Una pierna a la vez'],
+			['Pantorrilla de pie en máquina', '2 x 12', 'De pie'],
+		],
+	},
+	{
+		id: 11,
+		name: 'Tren superior',
+		focus: 'Upper: pecho, espalda, hombro y brazo',
+		accent: 'bg-cyan-300',
+		exercises: [
+			['Press inclinado en máquina', '2 x 8', 'Tempo 3-1-1'],
+			['Remo en T en máquina', '2 x 8-10', 'Tempo 3-1-1'],
+			['Press militar en máquina', '2 x 8', 'Tempo 3-1-1'],
+			['Jalón agarre invertido en máquina', '2 x 8-10', 'Tempo 3-1-1'],
+			['Curl predicador con mancuernas', '2 x 10', 'Tempo 3-1-1'],
+			['Tríceps en polea alta', '2 x 10', 'Aprieta abajo'],
+		],
+	},
+	{
+		id: 12,
+		name: 'Tren inferior',
+		focus: 'Lower: pierna y glúteo',
+		accent: 'bg-amber-300',
+		exercises: [
+			['Sentadilla goblet con mancuerna', '2 x 10', 'Mancuerna al pecho'],
+			['Prensa de piernas en máquina', '2 x 10', 'Pies altos'],
+			['Curl de isquios tumbado en máquina', '2 x 10-12', 'Tempo 3-1-1'],
+			['Patada de glúteo en polea', '2 x 10 por pierna', 'Una pierna a la vez'],
+			['Abductores en máquina', '2 x 12', 'Tempo 3-1-1'],
+			['Pantorrilla sentado en máquina', '2 x 12', 'Sentado'],
 		],
 	},
 ]
@@ -179,6 +250,85 @@ export function buildWeekMapForGoal(goal) {
 		const pos = days.indexOf(i)
 		return pos === -1 ? { rest: true } : { workoutId: routines[pos] }
 	})
+}
+
+// Splits famosos para personalizar la semana. Cada uno trae su mapa
+// Lun..Dom (sin rutinas repetidas: cada rutina se programa una sola vez por
+// semana para que el bloqueo semanal por rutina siga funcionando), su nivel
+// y una explicación para que el usuario sepa qué significa y qué trabaja.
+// El preview animado de cada día se deriva del primer ejercicio de la rutina
+// (ver SplitPickerModal), así que no se hardcodean GIFs aquí.
+export const SPLIT_TEMPLATES = [
+	{
+		id: 'tempolift-5',
+		name: 'TempoLift 5 días',
+		tag: 'El plan de la casa',
+		days: 5,
+		level: 'Principiante · Intermedio',
+		description: 'El plan original: pecho-espalda, dos días de pierna, hombro-brazo y torso mixto. Un músculo enfocado por día con fin de semana de pierna y torso.',
+		map: [{ rest: true }, { rest: true }, { workoutId: 1 }, { workoutId: 2 }, { workoutId: 3 }, { workoutId: 4 }, { workoutId: 5 }],
+	},
+	{
+		id: 'ppl-3',
+		name: 'Push · Pull · Legs',
+		tag: 'PPL clásico',
+		days: 3,
+		level: 'Intermedio',
+		description: 'Empuje (pecho-hombro-tríceps), Tirón (espalda-bíceps) y Pierna completa. El split más famoso para 3 días: cada músculo una vez por semana con mucho volumen por sesión.',
+		map: [{ workoutId: 8 }, { rest: true }, { workoutId: 9 }, { rest: true }, { workoutId: 10 }, { rest: true }, { rest: true }],
+	},
+	{
+		id: 'upper-lower-4',
+		name: 'Torso / Pierna ×2',
+		tag: 'Upper · Lower',
+		days: 4,
+		level: 'Intermedio',
+		description: 'Dos rotaciones con variantes distintas: Tren superior + Tren inferior, y luego Torso mixto + Pierna 1. Cada músculo dos veces por semana sin repetir el mismo día.',
+		map: [{ workoutId: 11 }, { workoutId: 12 }, { rest: true }, { workoutId: 5 }, { workoutId: 2 }, { rest: true }, { rest: true }],
+	},
+	{
+		id: 'arnold-3',
+		name: 'Arnold',
+		tag: 'Pecho+Espalda · Hombro+Brazo · Pierna',
+		days: 3,
+		level: 'Intermedio · Avanzado',
+		description: 'El split de Arnold: pecho con espalda, hombro con brazo y pierna completa. Sesiones largas con mucho volumen, ideales si te gustan los días intensos.',
+		map: [{ workoutId: 1 }, { rest: true }, { workoutId: 3 }, { rest: true }, { workoutId: 2 }, { rest: true }, { rest: true }],
+	},
+	{
+		id: 'fullbody-2',
+		name: 'Cuerpo completo',
+		tag: 'Full-body 2 días',
+		days: 2,
+		level: 'Principiante',
+		description: 'Dos full-body distintos (A y B) que tocan todo el cuerpo en cada sesión. Perfecto si retomas o tienes poco tiempo: con 2 días ya trabajas todo.',
+		map: [{ rest: true }, { workoutId: 6 }, { rest: true }, { rest: true }, { workoutId: 7 }, { rest: true }, { rest: true }],
+	},
+	{
+		id: 'ppl-ul-5',
+		name: 'PPL + Torso/Pierna',
+		tag: 'Híbrido 5 días',
+		days: 5,
+		level: 'Avanzado',
+		description: 'Híbrido exigente: PPL entre semana (empuje, tirón, pierna) más torso y pierna con variantes el fin de semana. Cinco estímulos distintos sin repetir rutina.',
+		map: [{ workoutId: 8 }, { workoutId: 9 }, { workoutId: 10 }, { rest: true }, { workoutId: 11 }, { workoutId: 12 }, { rest: true }],
+	},
+]
+
+// ¿A qué split equivale el mapa actual? null si es personalizado manual.
+export function findTemplateForMap(map) {
+	if (!Array.isArray(map) || map.length !== weekSchedule.length) return null
+	for (const t of SPLIT_TEMPLATES) {
+		let same = true
+		for (let i = 0; i < map.length; i += 1) {
+			const a = map[i]
+			const b = t.map[i]
+			if (Boolean(a?.rest) !== Boolean(b?.rest)) { same = false; break }
+			if (!a?.rest && a?.workoutId !== b?.workoutId) { same = false; break }
+		}
+		if (same) return t.id
+	}
+	return null
 }
 
 export function weekMapKey(userId) {
@@ -275,33 +425,93 @@ export const DEFAULT_WARMUP_MIN = 7 // plan: 5-10 min
 // Renombres de ejercicios del plan: el historial (último peso y series
 // recientes) se hereda del nombre anterior para no empezar de cero ni
 // mostrar el plan estático. Sin mutar datos: solo lectura con alias.
+// Tras la separación por implemento (cada nombre = 1 movimiento + 1 equipo),
+// cada entrada nueva hereda del nombre genérico anterior con el MISMO ID base.
 export const EXERCISE_RENAMES = {
-	'Pantorrilla': ['Biserie de pantorrillas'],
+	'Press inclinado con mancuernas': ['Press inclinado'],
+	'Remo inclinado con mancuernas': ['Remo en T'],
+	'Press plano con mancuernas': ['Press plano'],
+	'Jalón al pecho en máquina': ['Jalón a pecho'],
+	'Aperturas con mancuernas': ['Pec Fly'],
+	'Remo a una mano con mancuerna': ['Jalón unilateral dorsal'],
+	'Sentadilla goblet con mancuerna': ['Prensa de piernas'],
+	'Extensión de cuádriceps en máquina': ['Extensión de cuádriceps'],
+	'Aductores en máquina': ['Máquina de aductores'],
+	'Abductores en máquina': ['Máquina de abductores'],
+	'Pantorrilla de pie en máquina': ['Pantorrilla', 'Biserie de pantorrillas'],
+	'Press militar con mancuernas': ['Press militar'],
+	'Elevaciones laterales con mancuernas': ['Elevaciones laterales'],
+	'Skull crusher con mancuernas': ['Skull crushers'],
+	'Curl predicador con mancuernas': ['Curl predicador'],
+	'Patada de tríceps con mancuerna': ['Tríceps en polea'],
+	'Curl martillo con mancuernas': ['Curl martillo'],
+	'Curl de isquios sentado en máquina': ['Curl de isquiosurales sentado'],
+	'Patada de glúteo en máquina': ['Patada de glúteo'],
 }
 
 // Peso de ejemplo realista por ejercicio (lb): solo orienta el placeholder
 // del modal para no sugerir cargas absurdas. No es valor por defecto.
+// Cada ejercicio separado tiene su propio hint según equipo.
 export const WEIGHT_HINTS_LB = {
-	'Press inclinado': 95,
-	'Remo en T': 90,
-	'Press plano': 95,
-	'Jalón a pecho': 100,
-	'Pec Fly': 70,
-	'Jalón unilateral dorsal': 50,
-	'Prensa de piernas': 270,
-	'Extensión de cuádriceps': 90,
-	'Máquina de aductores': 100,
-	'Máquina de abductores': 100,
-	'Pantorrilla': 90,
-	'Press militar': 70,
-	'Elevaciones laterales': 15,
-	'Skull crushers': 40,
-	'Curl predicador': 45,
-	'Tríceps en polea': 50,
-	'Curl martillo': 25,
+	// Pecho
+	'Press inclinado con mancuernas': 95,
+	'Press inclinado en máquina': 90,
+	'Press plano con mancuernas': 95,
+	'Press plano en máquina': 90,
+	'Press declinado en máquina': 90,
+	'Aperturas con mancuernas': 30,
+	'Pec Fly en máquina': 70,
+	// Espalda
+	'Remo inclinado con mancuernas': 90,
+	'Remo a una mano con mancuerna': 50,
+	'Remo en T en máquina': 90,
+	'Remo en T agarre invertido en máquina': 90,
+	'Remo vertical agarre invertido en máquina': 90,
+	'Remo sentado en máquina': 100,
+	'Remo sentado agarre estrecho en máquina': 100,
+	'Remo alterno en máquina': 50,
+	'Jalón al pecho en máquina': 100,
+	'Jalón agarre invertido en máquina': 90,
+	'Jalón unilateral en máquina': 50,
+	// Pierna / glúteo
+	'Sentadilla goblet con mancuerna': 45,
+	'Prensa de piernas en máquina': 270,
+	'Extensión de cuádriceps en máquina': 90,
+	'Aductores en máquina': 100,
+	'Abductores en máquina': 100,
+	'Curl de isquios sentado en máquina': 90,
+	'Curl de isquios tumbado en máquina': 90,
+	'Curl de isquios arrodillado en máquina': 70,
+	'Patada de glúteo en máquina': 40,
+	'Hiperextensión inversa en máquina': 40,
+	'Peso muerto en máquina': 90,
+	'Patada de glúteo en polea': 30,
+	'Pantorrilla de pie en máquina': 90,
+	'Pantorrilla sentado en máquina': 90,
+	'Prensa de pantorrilla en máquina': 90,
+	'Pantorrilla en prensa de piernas': 180,
+	// Hombro
+	'Press militar con mancuernas': 70,
+	'Press militar en máquina': 70,
+	'Press de hombro en máquina': 70,
+	'Press de hombro a una mano en máquina': 35,
+	'Elevaciones laterales con mancuernas': 15,
+	'Elevación lateral en máquina': 50,
+	'Apertura posterior en máquina': 60,
+	// Brazo
+	'Skull crusher con barra': 40,
+	'Skull crusher con mancuernas': 40,
+	'Extensión de tríceps en máquina': 60,
+	'Fondos en máquina': 100,
+	'Tríceps en polea alta': 50,
+	'Tríceps en polea con V': 50,
+	'Patada de tríceps con mancuerna': 20,
+	'Curl predicador con mancuernas': 45,
+	'Curl predicador con barra': 45,
+	'Curl predicador en máquina': 45,
 	'Curl de bíceps en máquina': 45,
-	'Curl de isquiosurales sentado': 90,
-	'Patada de glúteo': 40,
+	'Curl martillo con mancuernas': 25,
+	'Curl martillo en máquina': 40,
 }
 
 export function weightHintFor(spanishName, unit) {

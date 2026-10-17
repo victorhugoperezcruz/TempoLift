@@ -12,6 +12,7 @@ import Snackbar from '../components/Snackbar.jsx'
 import OnboardingModal from '../components/OnboardingModal.jsx'
 import { WeightModal, CardioModal, WarmupModal } from '../components/WorkoutModals.jsx'
 import { CustomExerciseModal } from '../components/CustomExerciseModal.jsx'
+import SwapExerciseModal from '../components/SwapExerciseModal.jsx'
 import { DaySkeleton } from '../components/Skeleton.jsx'
 
 export default function DayPage({
@@ -27,6 +28,7 @@ export default function DayPage({
 	weightMod, cardioMod, warmupMod, snack, closeSnack, onboarding,
 	customs, customBlocked, onAddCustom, onLogCustom, onUnmarkCustom, onRemoveCustom, removeArmedCustomId,
 	customCreateMod, customLogMod,
+	editingRoutine, setEditingRoutine, onSwapExercise, onResetRoutine, swappedIdxs,
 }) {
 	// Resumen de fuerza para la cabecera del acordeón (visible colapsado).
 	const strengthDone = Object.values(seriesMap ?? {}).filter((v) => v === 2).length
@@ -43,13 +45,25 @@ export default function DayPage({
 		window.addEventListener('scroll', onScroll, { passive: true })
 		return () => window.removeEventListener('scroll', onScroll)
 	}, [])
+	// Índice del ejercicio a sustituir (null = modal cerrado).
+	const [swapIdx, setSwapIdx] = useState(null)
+	const swapEntry = swapIdx != null ? selectedWorkout.exercises[swapIdx] : null
+	const hasOverrides = (swappedIdxs ?? []).length > 0
 	return (
 		<>
 			<main className={`screen-enter theme-${theme} app-shell mx-auto min-h-screen max-w-lg px-5 pb-28 text-white`}>
 			<BackgroundOrbs />
-			<header className="relative z-10 flex items-center justify-start py-6">
+			<header className="relative z-10 flex items-center justify-between py-6">
 				<button type="button" onClick={goBack} className="back-btn flex min-h-12 items-center gap-2 text-sm font-bold uppercase tracking-widest text-zinc-400" aria-label="Volver a los días">
 					<span className="text-2xl leading-none text-red-500">‹</span> Días
+				</button>
+				<button
+					type="button"
+					onClick={() => setEditingRoutine((v) => !v)}
+					aria-pressed={editingRoutine}
+					className={`rounded-xl border px-4 py-2 text-xs font-bold uppercase tracking-widest transition ${editingRoutine ? 'border-red-500/60 bg-red-500 text-white' : 'border-white/10 text-zinc-400 hover:border-white/25 hover:text-white'}`}
+				>
+					{editingRoutine ? 'Listo' : 'Editar'}
 				</button>
 			</header>
 			<div className="relative z-10 mb-6">
@@ -142,32 +156,57 @@ export default function DayPage({
 						<span className="text-zinc-300">Regla global</span>
 						<strong className="text-red-500">{globalRules.tempo} · {globalRules.rest}</strong>
 					</div>
+					{editingRoutine && (
+						<div className="mb-3 rounded-xl border border-white/10 px-4 py-3 text-xs leading-relaxed text-zinc-400">
+							Toca <strong className="text-white">Cambiar</strong> en un ejercicio para sustituirlo por otro del catálogo (primero los del mismo músculo). Se guarda en tu rutina y la próxima vez ya aparece así.
+							{hasOverrides && (
+								<button type="button" onClick={() => onResetRoutine(selectedWorkout.id)} className="ml-2 font-bold uppercase tracking-widest text-red-400 hover:text-red-300">
+									Restablecer rutina
+								</button>
+							)}
+						</div>
+					)}
 					<div className={`exercise-list ${isResting ? 'opacity-80' : ''}`}>
 						{selectedWorkout.exercises.map(([name, reps, note], index) => {
 							const key = `${selectedWorkout.id}-${index}`
 							const series = seriesMap[index] ?? 0
 							const exerciseId = planIds?.byIndex?.[index]
 							const prev = exerciseId ? lastW[exerciseId] : null
+							const isSwapped = (swappedIdxs ?? []).includes(index)
 							return (
+								<div key={key}>
 								<ExerciseItem
-									key={key}
 									name={name}
 									reps={reps}
 									note={note}
 									index={index}
 										checked={series === 2}
 										partial={series === 1}
-										blocked={isResting || weightModal != null || cardioModal != null || warmupModal != null || customCreateMod != null || customLogMod != null}
+										blocked={editingRoutine || isResting || weightModal != null || cardioModal != null || warmupModal != null || customCreateMod != null || customLogMod != null}
 										restLeft={restLeft}
 									lastWeight={prev?.weight_kg != null ? displayWeight(prev.weight_kg, weightUnit) : null}
 									lastReps={prev?.reps ?? null}
 									weightUnit={weightUnit}
 									history={exerciseId ? (recentW[exerciseId] ?? null) : null}
-									onToggle={() => handleToggleCheck(selectedWorkout.id, index, name, reps)}
+									onToggle={() => { if (!editingRoutine) handleToggleCheck(selectedWorkout.id, index, name, reps) }}
 									expanded={expandedKey === key}
 									onExpand={() => toggleExpand(key)}
 									bundle={getExerciseBundle(name)}
 								/>
+								{editingRoutine && (
+									<div className="mb-2 flex items-center gap-2 px-1">
+										{isSwapped && <span className="rounded-lg border border-green-500/40 bg-green-500/10 px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-green-300">Tuyo</span>}
+										<button
+											type="button"
+											onClick={() => setSwapIdx(index)}
+											className="rounded-lg border border-white/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-widest text-zinc-300 transition hover:border-red-500/60 hover:text-white"
+											aria-label={`Sustituir ${name}`}
+										>
+											Cambiar
+										</button>
+									</div>
+								)}
+								</div>
 							)
 						})}
 						{customs.map((c) => (
@@ -302,6 +341,16 @@ export default function DayPage({
 					setReps={customLogMod.setReps}
 					onSubmit={customLogMod.onSubmit}
 					onClose={customLogMod.onClose}
+				/>
+			)}
+			{swapEntry && (
+				<SwapExerciseModal
+					theme={theme}
+					currentName={swapEntry[0]}
+					reps={swapEntry[1]}
+					note={swapEntry[2]}
+					onConfirm={(newName) => { onSwapExercise(selectedWorkout.id, swapIdx, newName); setSwapIdx(null) }}
+					onClose={() => setSwapIdx(null)}
 				/>
 			)}
 			<Snackbar snack={snack} onClose={closeSnack} theme={theme} />

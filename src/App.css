@@ -396,13 +396,15 @@
 }
 
 .theme-light .bg-white\/5,
+.theme-light .bg-white\/10,
 .theme-light .bg-white\/\[0\.02\] {
-  background: rgba(24, 32, 25, 0.04) !important;
+  background: rgba(24, 32, 25, 0.06) !important;
 }
 
 .theme-light .border-white\/10,
+.theme-light .border-white\/25,
 .theme-light .divide-white\/10 {
-  border-color: rgba(24, 32, 25, 0.12) !important;
+  border-color: rgba(24, 32, 25, 0.16) !important;
 }
 
 .theme-light .text-white {
