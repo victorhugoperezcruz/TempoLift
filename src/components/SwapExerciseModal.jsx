@@ -29,13 +29,35 @@ function OptionRow({ name, selected, onPick }) {
 	)
 }
 
+// Normaliza texto para búsqueda sin acentos ni mayúsculas.
+function norm(str) {
+	return String(str ?? '')
+		.normalize('NFD')
+		.replace(/[\u0300-\u036f]/g, '')
+		.toLowerCase()
+		.trim()
+}
+
 // Modal para sustituir un ejercicio de la rutina por otro del catálogo.
 // Sugiere primero el mismo músculo (y luego la misma zona); con el toggle
-// se ve el catálogo completo. El cambio se guarda en la rutina del usuario.
+// se ve el catálogo completo con buscador. El cambio se guarda en la rutina del usuario.
 const SwapExerciseModal = memo(function SwapExerciseModal({ theme = 'dark', currentName, reps, note, onConfirm, onClose }) {
 	const [showAll, setShowAll] = useState(false)
+	const [catalogSearch, setCatalogSearch] = useState('')
 	const [selected, setSelected] = useState(currentName)
 	const { sameMuscle, sameZone, rest } = useMemo(() => getSubstitutes(currentName), [currentName])
+	const allCatalog = useMemo(() => [...sameMuscle, ...sameZone, ...rest], [sameMuscle, sameZone, rest])
+	const filteredCatalog = useMemo(() => {
+		const q = norm(catalogSearch)
+		if (!q) return rest
+		return allCatalog.filter((name) => {
+			if (norm(name).includes(q)) return true
+			const meta = getExerciseMeta(name)
+			if (!meta) return false
+			const tags = translateTerms([meta.target, meta.bodyPart, meta.equipment])
+			return tags.some((t) => norm(t).includes(q))
+		})
+	}, [catalogSearch, rest, allCatalog])
 	const currentMeta = useMemo(() => getExerciseMeta(currentName), [currentName])
 	const currentTags = currentMeta ? translateTerms([currentMeta.target, currentMeta.bodyPart, currentMeta.equipment]) : []
 	const currentThumb = getExerciseThumb(currentName)
@@ -86,18 +108,52 @@ const SwapExerciseModal = memo(function SwapExerciseModal({ theme = 'dark', curr
 				)}
 				<button
 					type="button"
-					onClick={() => setShowAll((v) => !v)}
+					onClick={() => {
+						setShowAll((v) => {
+							if (v) setCatalogSearch('')
+							return !v
+						})
+					}}
 					aria-expanded={showAll}
 					className="mt-3 w-full rounded-xl border border-white/10 px-4 py-2 text-[11px] font-bold uppercase tracking-widest text-zinc-400 transition hover:border-white/25 hover:text-white"
 				>
 					{showAll ? 'Ocultar catálogo completo' : `Ver todo el catálogo (${rest.length})`}
 				</button>
 				{showAll && (
-					<ul className="mt-2 flex max-h-56 flex-col gap-2 overflow-y-auto overscroll-contain">
-						{rest.map((n) => (
-							<OptionRow key={n} name={n} selected={selected === n} onPick={setSelected} />
-						))}
-					</ul>
+					<div className="mt-2 flex flex-col gap-2">
+						<div className="relative flex items-center">
+							<input
+								type="search"
+								value={catalogSearch}
+								onChange={(e) => setCatalogSearch(e.target.value)}
+								placeholder="Buscar ejercicio, músculo o equipo…"
+								aria-label="Buscar ejercicio en el catálogo"
+								autoComplete="off"
+								className="glass-inset w-full rounded-xl px-3.5 py-2.5 pr-9 text-sm text-white placeholder:text-zinc-500 focus:border-red-500/60 focus:outline-none"
+							/>
+							{catalogSearch && (
+								<button
+									type="button"
+									onClick={() => setCatalogSearch('')}
+									aria-label="Limpiar búsqueda"
+									className="absolute right-2.5 flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition hover:text-white"
+								>
+									×
+								</button>
+							)}
+						</div>
+						{filteredCatalog.length > 0 ? (
+							<ul className="flex max-h-56 flex-col gap-2 overflow-y-auto overscroll-contain">
+								{filteredCatalog.map((n) => (
+									<OptionRow key={n} name={n} selected={selected === n} onPick={setSelected} />
+								))}
+							</ul>
+						) : (
+							<p className="rounded-xl border border-dashed border-white/10 px-3 py-4 text-center text-xs text-zinc-500">
+								No se encontraron ejercicios para «{catalogSearch.trim()}»
+							</p>
+						)}
+					</div>
 				)}
 
 				<div className="mt-4 flex gap-2">

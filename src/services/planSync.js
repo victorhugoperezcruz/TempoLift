@@ -47,33 +47,76 @@ async function findOrCreateExercise(supabase, userId, name) {
 
 export async function ensureDayRows(supabase, userId, workout) {
 	const routineId = await findOrCreateRoutine(supabase, userId, workout)
-	const byIndex = {}
-	for (let i = 0; i < workout.exercises.length; i += 1) {
-		const [name, reps] = workout.exercises[i]
-		const exerciseId = await findOrCreateExercise(supabase, userId, name)
-		byIndex[i] = exerciseId
-		const targetReps = parseTargetReps(reps)
-		const { data: link } = await supabase
-			.from('routine_exercises')
-			.select('id')
-			.eq('user_id', userId)
-			.eq('routine_id', routineId)
-			.eq('exercise_id', exerciseId)
-			.limit(1)
-			.maybeSingle()
-		if (!link) {
-			const { error: linkError } = await supabase.from('routine_exercises').insert({
-				user_id: userId,
-				routine_id: routineId,
-				exercise_id: exerciseId,
-				target_sets: 2,
-				target_reps: targetReps,
-				rest_seconds: 120,
-				position: i,
-			})
-			if (linkError) throw linkError
+	const names = [...new Set(workout.exercises.map(([name]) => name).filter(Boolean))]
+	const { data: existingEx, error: exFetchErr } = await supabase
+		.from('exercises')
+		.select('id, name')
+		.eq('user_id', userId)
+		.in('name', names)
+	if (exFetchErr) throw exFetchErr
+
+	const idByName = {}
+	for (const row of existingEx ?? []) {
+		if (row?.name && row?.id != null && idByName[row.name] == null) {
+			idByName[row.name] = row.id
 		}
 	}
+
+	const missingNames = names.filter((n) => idByName[n] == null)
+	if (missingNames.length > 0) {
+		const { data: insertedEx, error: exInsertErr } = await supabase
+			.from('exercises')
+			.insert(missingNames.map((name) => ({ user_id: userId, name })))
+			.select('id, name')
+		if (exInsertErr) {
+			// Fallback uno por uno si hubo carrera
+			for (const name of missingNames) {
+				idByName[name] = await findOrCreateExercise(supabase, userId, name)
+			}
+		} else {
+			for (const row of insertedEx ?? []) {
+				if (row?.name && row?.id != null) idByName[row.name] = row.id
+			}
+		}
+	}
+
+	const byIndex = {}
+	const exerciseIds = []
+	for (let i = 0; i < workout.exercises.length; i += 1) {
+		const [name] = workout.exercises[i]
+		const exId = idByName[name]
+		byIndex[i] = exId
+		if (exId != null) exerciseIds.push(exId)
+	}
+
+	const { data: existingLinks } = await supabase
+		.from('routine_exercises')
+		.select('exercise_id')
+		.eq('user_id', userId)
+		.eq('routine_id', routineId)
+		.in('exercise_id', [...new Set(exerciseIds)])
+	const linkedSet = new Set((existingLinks ?? []).map((r) => r.exercise_id))
+
+	const missingLinks = []
+	for (let i = 0; i < workout.exercises.length; i += 1) {
+		const [, reps] = workout.exercises[i]
+		const exerciseId = byIndex[i]
+		if (exerciseId == null || linkedSet.has(exerciseId)) continue
+		linkedSet.add(exerciseId)
+		missingLinks.push({
+			user_id: userId,
+			routine_id: routineId,
+			exercise_id: exerciseId,
+			target_sets: 2,
+			target_reps: parseTargetReps(reps),
+			rest_seconds: 120,
+			position: i,
+		})
+	}
+	if (missingLinks.length > 0) {
+		await supabase.from('routine_exercises').insert(missingLinks)
+	}
+
 	return { routineId, byIndex }
 }
 

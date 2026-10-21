@@ -229,13 +229,6 @@
   transition: background-color 420ms cubic-bezier(0.22, 1, 0.36, 1), color 420ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.theme-dark *,
-.theme-light * {
-  transition-property: background-color, border-color, color, box-shadow;
-  transition-duration: 360ms;
-  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
-}
-
 .theme-toggle,
 .view-tab,
 .phase-toggle,
@@ -465,28 +458,25 @@
 .orb {
   position: absolute;
   border-radius: 9999px;
-  /* Sin filter:blur: el radial-gradient ya dibuja un halo suave y el blur
-     obligaba a repintar la capa en cada frame de la animación infinita. */
-  opacity: 0.5;
-  animation: orb-float 14s ease-in-out infinite alternate;
-  will-change: transform;
+  /* Halo estático por radial-gradient sin animación infinita: evita que las
+     capas con backdrop-filter recompongan la GPU a 60fps en segundo plano. */
+  opacity: 0.4;
 }
 
 .orb-a {
-  width: 420px;
-  height: 420px;
+  width: 400px;
+  height: 400px;
   top: -140px;
   right: -120px;
   background: radial-gradient(circle at 30% 30%, rgba(255, 45, 45, 0.55), rgba(255, 45, 45, 0) 70%);
 }
 
 .orb-b {
-  width: 380px;
-  height: 380px;
+  width: 360px;
+  height: 360px;
   bottom: -120px;
   left: -120px;
   background: radial-gradient(circle at 60% 40%, rgba(56, 189, 248, 0.35), rgba(56, 189, 248, 0) 70%);
-  animation-delay: -5s;
 }
 
 .glass-card {
@@ -533,9 +523,9 @@
 .day-row {
   border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.09);
+  /* Sin backdrop-filter anidado: .day-row ya vive dentro de .glass-card,
+     evitando 7 pasadas extra de blur en GPU al hacer scroll o animar. */
   background: linear-gradient(150deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02));
-  -webkit-backdrop-filter: blur(18px) saturate(170%);
-  backdrop-filter: blur(18px) saturate(170%);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.07);
   animation: calendar-item 420ms var(--spring, cubic-bezier(.22, 1, .36, 1)) backwards;
   animation-delay: var(--d, 0ms);
@@ -1584,12 +1574,9 @@ button.day-row.is-done:hover {
 }
 
 .orb {
-  animation: orb-float 18s ease-in-out infinite alternate;
-  /* Sin blur (ver regla .orb base): el gradiente radial ya es un halo suave.
-     Así la animación infinita solo compone transforms, sin repintar. */
+  animation: none;
   filter: none;
   opacity: 0.4;
-  will-change: transform;
 }
 
 .orb-a {
@@ -2342,20 +2329,28 @@ button.day-row.is-done:hover {
   width: 100%;
 }
 
-/* La lista es absolute con z-60, pero cada .glass-card crea su propio
-   stacking context (backdrop-filter). Como "Mis datos" va antes que
-   "Apariencia" en el DOM, la lista quedaba pintada por detrás de la
-   card siguiente. Al abrir, se eleva el select y su card contenedora
-   por encima de las hermanas siguientes. */
+/* La lista es absolute con z-60, pero cada .glass-card y .day-row crea su
+   propio stacking context (backdrop-filter / opacity). Al abrir, se eleva el
+   select, su fila de día y su card contenedora por encima de las hermanas. */
 .custom-select.open {
   position: relative;
   z-index: 40;
 }
 
+.day-row:has(.custom-select.open),
+label:has(.custom-select.open) {
+  position: relative;
+  z-index: 50;
+}
+
+.day-row.is-rest:has(.custom-select.open) {
+  opacity: 1;
+}
+
 .glass-card:has(.custom-select.open):not(.modal-card) {
   position: relative;
-  z-index: 30;
-  overflow: visible;
+  z-index: 30 !important;
+  overflow: visible !important;
 }
 
 .custom-select-btn {
@@ -2421,11 +2416,17 @@ button.day-row.is-done:hover {
   right: 0;
   top: calc(100% + 6px);
   z-index: 60;
+  max-height: 224px;
   margin: 0;
   padding: 6px;
   list-style: none;
   border-radius: 14px;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 45, 45, 0.55) transparent;
   /* Lista opaca: el glass-card base es traslúcido y dejaba ver los
      botones de atrás (ej. "Omitir por ahora"). Fondo sólido + sombra. */
   background: #161b17 !important;
@@ -2435,6 +2436,29 @@ button.day-row.is-done:hover {
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6) !important;
   isolation: isolate;
   animation: custom-select-in 220ms var(--spring, cubic-bezier(.22,1,.36,1)) both;
+}
+
+.custom-select-list.drop-up {
+  top: auto;
+  bottom: calc(100% + 6px);
+  animation-name: custom-select-in-up;
+}
+
+.custom-select-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-select-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-select-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255, 45, 45, 0.55);
+}
+
+.custom-select-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 45, 45, 0.8);
 }
 
 .custom-select-option {
@@ -2489,6 +2513,17 @@ button.day-row.is-done:hover {
   from {
     opacity: 0;
     transform: translateY(-6px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes custom-select-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.99);
   }
   to {
     opacity: 1;

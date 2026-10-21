@@ -10,15 +10,22 @@ export function useAuth() {
 	const [authChecking, setAuthChecking] = useState(true)
 
 	useEffect(() => {
-		supabase.auth.getSession().then(({ data: { session } }) => {
-			setSession(session)
+		const applySession = (next) => {
+			setSession((prev) => {
+				const prevUid = prev?.user?.id ?? null
+				const nextUid = next?.user?.id ?? null
+				if (prevUid === nextUid && Boolean(prev) === Boolean(next)) return prev
+				return next
+			})
 			setAuthChecking(false)
+		}
+		supabase.auth.getSession().then(({ data: { session: s } }) => {
+			applySession(s)
 		}).catch(() => {
 			setAuthChecking(false)
 		})
-		const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-			setSession(session)
-			setAuthChecking(false)
+		const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+			applySession(s)
 		})
 		return () => subscription.unsubscribe()
 	}, [])

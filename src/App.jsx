@@ -6,9 +6,9 @@ import { ensureDayRows, fetchExerciseIdsByNames, fetchLastWeights, fetchRecentLo
 import { getCatalogExerciseNames, getExerciseBundle } from './services/exercisesApi.js'
 import {
 	DEFAULT_WEEK_MAP, DEFAULT_BODY_KG, DEFAULT_CARDIO_MIN, DEFAULT_WARMUP_MIN,
-	ROUTINES_BY_GOAL, WARMUP_MET, LB_TO_KG, KCAL_PER_KG_MOVED,
+	WARMUP_MET, LB_TO_KG, KCAL_PER_KG_MOVED,
 	workoutDays, weekSchedule,
-	buildWeekMapForGoal, readWeekMap, persistWeekMap,
+	adjustWeekMapForGoal, isFullBodyWorkout, readWeekMap, persistWeekMap,
 	readWeekGoal, persistWeekGoal, weightHintFor, EXERCISE_RENAMES,
 } from './data/plan.js'
 import { readRoutineOverrides, persistRoutineOverrides, applyRoutineOverrides } from './lib/routineOverrides.js'
@@ -20,7 +20,7 @@ import {
 	DEFAULT_VOLUME_CHART_IDS, readVolumeCharts, persistVolumeCharts, sessionVolumeByBodyPart,
 } from './lib/health.js'
 import { readActiveWorkout, persistActiveWorkout, clearActiveWorkout, hasNonEmptyValue, hasOtherDayProgress } from './lib/draft.js'
-import { trainingWeekStart, readDoneJournal, appendDoneJournal, removeDoneJournalByName, clearDoneJournal } from './lib/weekly.js'
+import { trainingWeekStart, computeDoneWorkoutIds, appendDoneJournal, removeDoneJournalByName, clearDoneJournal } from './lib/weekly.js'
 import { useAuth } from './hooks/useAuth.js'
 import { useRestTimer } from './hooks/useRestTimer.js'
 import LoginPage from './pages/LoginPage.jsx'
@@ -230,9 +230,16 @@ function App() {
 	}, [])
 
 	// Primer toque = anota peso (serie 1) + descanso. Segundo toque = anota peso (serie 2) + descanso. Tercer toque = desmarcar.
-	const handleToggleCheck = (workoutId, index, exerciseName, planReps) => {
-		if (restLeft > 0 || weightModal || cardioModal || warmupModal || customCreate || customModal) return
-		const current = seriesByDay[workoutId]?.[index] ?? 0
+	const toggleGuardRef = useRef({})
+	toggleGuardRef.current = {
+		blocked: restLeft > 0 || Boolean(weightModal || cardioModal || warmupModal || customCreate || customModal),
+		seriesByDay,
+	}
+
+	const handleToggleCheck = useCallback((workoutId, index, exerciseName, planReps) => {
+		const { blocked, seriesByDay: curSeries } = toggleGuardRef.current
+		if (blocked) return
+		const current = curSeries[workoutId]?.[index] ?? 0
 		if (current >= 2) {
 			setDayComplete(false)
 			setSeriesByDay((prev) => {
@@ -254,7 +261,7 @@ function App() {
 		setWeightInput('')
 		setRepsInput('')
 		setWeightModal({ workoutId, index, name: exerciseName ?? 'Ejercicio', setNumber, planReps })
-	}
+	}, [])
 
 	// Cambia lb ↔ kg convirtiendo todo lo ya escrito (una sola vez por campo).
 	// La preferencia persiste. Se convierten todos los inputs de peso visibles
@@ -781,9 +788,15 @@ function App() {
 	// Asigna (o quita) la rutina de un día concreto. Sin duplicados: cada
 	// rutina vive una sola vez por semana para que el bloqueo semanal siga
 	// funcionando. La meta se ajusta al nº de días entrenados.
+	// Si queda 1 solo día de entreno en la semana, su rutina debe ser Full Body.
 	const selectDayRoutine = useCallback((dayIdx, workoutIdOrNull) => {
 		const base = weekMap.map((s) => ({ ...s }))
 		if (workoutIdOrNull == null) {
+			const currentActive = base.filter((s) => !s.rest).length
+			if (currentActive <= 1 && !base[dayIdx]?.rest) {
+				showSnack('Debes mantener al menos 1 día de entrenamiento en la semana', 'warn')
+				return
+			}
 			base[dayIdx] = { rest: true }
 		} else {
 			const usedElsewhere = base.some((s, i) => i !== dayIdx && !s.rest && s.workoutId === workoutIdOrNull)
@@ -791,7 +804,21 @@ function App() {
 				showSnack('Esa rutina ya está en otro día: elige otra o pon descanso', 'warn')
 				return
 			}
-			base[dayIdx] = { workoutId: workoutIdOrNull }
+			const otherActiveCount = base.filter((s, i) => i !== dayIdx && !s.rest).length
+			if (otherActiveCount === 0 && !isFullBodyWorkout(workoutIdOrNull)) {
+				base[dayIdx] = { workoutId: 6 }
+				showSnack('Con 1 solo día de entreno la rutina debe ser Cuerpo completo (A o B)', 'warn')
+			} else {
+				base[dayIdx] = { workoutId: workoutIdOrNull }
+			}
+		}
+		const activeIndices = base.map((s, i) => (!s.rest ? i : -1)).filter((i) => i !== -1)
+		if (activeIndices.length === 1) {
+			const onlyIdx = activeIndices[0]
+			if (!isFullBodyWorkout(base[onlyIdx].workoutId)) {
+				base[onlyIdx] = { workoutId: 6 }
+				showSnack('Con 1 solo día de entreno se asignó Cuerpo completo A', 'warn')
+			}
 		}
 		setWeekMap(base)
 		persistWeekMap(session?.user?.id, base)
@@ -865,10 +892,8 @@ function App() {
 		showSnack('Rutina original restaurada')
 	}
 
-	// Semana de entreno en curso + bloqueos semanales (una rutina por semana).
-	// weekStartIdx = primer día con rutina en el mapa del usuario (su inicio
-	// personal, no el lunes de calendario). Todo se deriva del mapa actual,
-	// así que mover rutinas mueve el reinicio automáticamente.
+	// Semana de entreno en curso + bloqueos semanales (una rutina por semana),
+	// contemplando automáticamente reposiciones y acarreos de días.
 	const weekStartIdx = (() => {
 		const i = weekMap.findIndex((s) => s && !s.rest)
 		return i === -1 ? 0 : i
@@ -878,27 +903,12 @@ function App() {
 		const full = weekSchedule[weekStartIdx]?.fullDay ?? 'Lunes'
 		return full.charAt(0).toLowerCase() + full.slice(1)
 	})()
-	// Sesiones terminadas de esta semana de entreno (cualquier rutina).
-	const sessionsThisWeek = sbSessions.filter((s) => s.ended_at && typeof s.started_at === 'string' && s.started_at >= weekStartISO)
-	const sessionsThisWeekCount = sessionsThisWeek.length
-	// Rutinas completadas: journal preciso (por workoutId) + sesiones de
-	// Supabase (por nombre de rutina, respaldo entre dispositivos; los
-	// nombres de rutina son únicos: Pierna 1 / Pierna 2 tienen fila propia).
-	// Si el journal ya registra ese nombre esta semana, manda el journal.
-	const widToName = new Map(workoutDays.map((w) => [w.id, w.name]))
-	const journalWids = new Set(
-		readDoneJournal(session?.user?.id)
-			.filter((e) => e.at >= weekStartISO && widToName.has(Number(e.w)))
-			.map((e) => Number(e.w)),
-	)
-	const journalNames = new Set([...journalWids].map((id) => widToName.get(id)))
-	const routineNameById = new Map((sbRoutines ?? []).map((r) => [r.id, r.name]))
-	const doneIds = new Set(journalWids)
-	for (const s of sessionsThisWeek) {
-		const nm = routineNameById.get(s.routine_id)
-		if (!nm || journalNames.has(nm)) continue
-		for (const w of workoutDays) if (w.name === nm) doneIds.add(w.id)
-	}
+	const doneIds = useMemo(() => computeDoneWorkoutIds({
+		weekMap,
+		sbSessions,
+		sbRoutines,
+		userId: session?.user?.id,
+	}), [weekMap, sbSessions, sbRoutines, session?.user?.id, saveStatus.state])
 	// Borrador en curso (una sola rutina por invariante): se protege al bajar
 	// la meta para no quitar el día que se está entrenando.
 	const draftActiveId = (() => {
@@ -909,74 +919,43 @@ function App() {
 		}
 		return null
 	})()
-	// Meta = tope de sesiones por semana: al alcanzarla, todo lo demás se
-	// bloquea con aviso de subirla (aunque el mapa ofrezca más días).
-	const capReached = sessionsThisWeekCount >= weekGoal
+	// Meta alcanzada cuando todas las rutinas programadas de la semana actual
+	// ya están completadas (sin bloquear días pendientes por reposiciones hechas antes).
+	const scheduledWorkoutIds = weekMap.filter((s) => s && !s.rest).map((s) => Number(s.workoutId))
+	const capReached = scheduledWorkoutIds.length >= weekGoal && scheduledWorkoutIds.every((id) => doneIds.has(id))
 
 	// Abrir un día respetando bloqueos semanales: meta alcanzada → aviso de
 	// subirla; rutina ya hecha → aviso con el día de desbloqueo.
 	const tryOpenDay = (workoutId) => {
 		const wid = Number(workoutId)
-		if (capReached) {
-			showSnack(`Ya cumpliste tu meta de ${weekGoal} ${weekGoal === 1 ? 'día' : 'días'} esta semana. Súbela en Mi perfil → Meta semanal para entrenar más`, 'warn')
-			return
-		}
 		if (doneIds.has(wid)) {
 			const w = workoutDays.find((d) => d.id === wid)
 			showSnack(`Ya completaste ${w?.name ?? 'esta rutina'} esta semana. Se desbloquea el ${resetWeekdayLabel}`, 'warn')
 			return
 		}
+		if (capReached) {
+			showSnack(`Ya cumpliste tu meta de ${weekGoal} ${weekGoal === 1 ? 'día' : 'días'} esta semana. Súbela en Mi perfil → Meta semanal para entrenar más`, 'warn')
+			return
+		}
 		selectDay(wid)
 	}
 
-	// Cambiar la meta ajusta UN solo día (incremental): conserva el orden y
-	// las rutinas ya colocadas por el usuario. Al subir, el primer descanso
-	// (Lun→Dom) se vuelve entreno con la primera rutina del plan para esa
-	// meta aún no programada. Al bajar, se descansa el último día (Dom→Lun)
-	// sin progreso en curso ni completado esta semana (si todos tienen, el
-	// último igualmente; sus sesiones cuentan igual para la meta).
-	// Las rutinas completadas esta semana siguen bloqueadas donde estén:
-	// solo se agrega el día que faltaba.
+	// Cambiar la meta conserva los días de la semana elegidos por el usuario y
+	// mantiene el orden lógico de las rutinas (sin mezclar full-body con rutinas
+	// divididas ni desordenar al pasar de 4 a 5 días). Con 1 día fuerza Full Body.
 	const changeWeekGoal = (dir) => {
 		const next = Math.min(7, Math.max(1, weekGoal + dir))
 		if (next === weekGoal) return
 		setWeekGoal(next)
 		persistWeekGoal(session?.user?.id, next)
+		const protectedIds = new Set(doneIds)
+		if (draftActiveId != null) protectedIds.add(draftActiveId)
 		setWeekMap((prev) => {
-			const base = (Array.isArray(prev) && prev.length === 7 ? prev : buildWeekMapForGoal(next)).map((s) => ({ ...s }))
-			const count = () => base.filter((s) => !s.rest).length
-			while (count() < next) {
-				const idx = base.findIndex((s) => s.rest)
-				if (idx === -1) break
-				const used = new Set(base.filter((s) => !s.rest).map((s) => s.workoutId))
-				const curated = (ROUTINES_BY_GOAL[next] ?? []).find((id) => !used.has(id))
-				const fallback = workoutDays.map((w) => w.id).find((id) => !used.has(id))
-				const pick = curated ?? fallback
-				if (pick == null) break
-				base[idx] = { workoutId: pick }
-			}
-			while (count() > next) {
-				let idx = -1
-				for (let i = base.length - 1; i >= 0; i -= 1) {
-					if (base[i].rest) continue
-					const wid = Number(base[i].workoutId)
-					if (doneIds.has(wid)) continue
-					if (draftActiveId != null && wid === draftActiveId) continue
-					idx = i
-					break
-				}
-				if (idx === -1) {
-					for (let i = base.length - 1; i >= 0; i -= 1) {
-						if (!base[i].rest) { idx = i; break }
-					}
-				}
-				if (idx === -1) break
-				base[idx] = { rest: true }
-			}
+			const base = adjustWeekMapForGoal(prev, next, protectedIds)
 			persistWeekMap(session?.user?.id, base)
 			return base
 		})
-		showSnack(`Plan de ${next} ${next === 1 ? 'día' : 'días'} aplicado en tu semana`)
+		showSnack(`Plan de ${next} ${next === 1 ? 'día (Cuerpo completo)' : 'días'} aplicado en tu semana`)
 	}
 
 	// Filas del home: días fijos Lun..Dom con el contenido de este usuario.
@@ -1131,14 +1110,23 @@ function App() {
 		}
 	}, [anyModalOpen])
 
-	const fetchSb = useCallback(async () => {
-		if (!session?.user?.id) return
+	const lastSbFetchRef = useRef({ uid: null, ts: 0 })
+	const fetchSb = useCallback(async (force = false) => {
+		const uid = session?.user?.id
+		if (!uid) return
+		const now = Date.now()
+		if (!force && lastSbFetchRef.current.uid === uid && now - lastSbFetchRef.current.ts < 8000) {
+			return
+		}
+		lastSbFetchRef.current = { uid, ts: now }
 		setSbLoading(true)
 		try {
-			const { data: routines } = await supabase.from('routines').select('id, name').eq('user_id', session.user.id).order('created_at', { ascending: false }).limit(20)
-			if (routines) setSbRoutines(routines)
-			const { data: sessions } = await supabase.from('workout_sessions').select('id, routine_id, started_at, ended_at, notes').eq('user_id', session.user.id).order('started_at', { ascending: false }).limit(20)
-			if (sessions) setSbSessions(sessions)
+			const [routinesRes, sessionsRes] = await Promise.all([
+				supabase.from('routines').select('id, name').eq('user_id', uid).order('created_at', { ascending: false }).limit(20),
+				supabase.from('workout_sessions').select('id, routine_id, started_at, ended_at, notes').eq('user_id', uid).order('started_at', { ascending: false }).limit(20),
+			])
+			if (routinesRes.data) setSbRoutines(routinesRes.data)
+			if (sessionsRes.data) setSbSessions(sessionsRes.data)
 		} catch {
 			// silencioso: las vistas muestran estado vacío
 		} finally {
@@ -1154,7 +1142,7 @@ function App() {
 	// kcal de fuerza estimadas + cardio guardado en notes) + mejor marca por
 	// ejercicio para la lista de récords. Sin migración.
 	useEffect(() => {
-		if (currentView !== 'profile' || !session?.user?.id) return
+		if (currentView !== 'profile' || !session?.user?.id || sbLoading) return
 		const finished = sbSessions.filter((s) => s.ended_at)
 		if (finished.length === 0) {
 			setStatsRows([])
@@ -1234,7 +1222,7 @@ function App() {
 			if (!cancelled) setStatsLoading(false)
 		})
 		return () => { cancelled = true }
-	}, [currentView, session?.user?.id, sbSessions, sbRoutines])
+	}, [currentView, session?.user?.id, sbLoading, sbSessions, sbRoutines])
 
 	const toggleVolumeChart = useCallback((chartId) => {
 		setEnabledVolumeCharts((prev) => {
@@ -1302,18 +1290,15 @@ function App() {
 			} catch {
 				// sin alias: historial desde cero
 			}
-			try {
-				const map = await fetchLastWeights(supabase, session.user.id, Object.values(ids.byIndex), aliasMap)
-				if (!cancelled) setLastW(map)
-			} catch {
-				// sin último peso: el modal queda vacío
-			}
-			try {
-				const recent = await fetchRecentLogs(supabase, session.user.id, Object.values(ids.byIndex), 4, aliasMap)
-				if (!cancelled) setRecentW(recent)
-			} catch {
-				// sin historial reciente: el acordeón no muestra la caja
-			}
+			const exIds = Object.values(ids.byIndex)
+			await Promise.all([
+				fetchLastWeights(supabase, session.user.id, exIds, aliasMap)
+					.then((map) => { if (!cancelled) setLastW(map) })
+					.catch(() => {}),
+				fetchRecentLogs(supabase, session.user.id, exIds, 4, aliasMap)
+					.then((recent) => { if (!cancelled) setRecentW(recent) })
+					.catch(() => {}),
+			])
 		}).catch((err) => {
 			if (!cancelled) setSyncError(friendlyError(err))
 		})
@@ -1557,7 +1542,7 @@ function App() {
 					// Journal preciso por workoutId: bloquea esta rutina hasta
 					// el reinicio semanal (sin esperar al refetch).
 					appendDoneJournal(session.user.id, wid)
-					fetchSb()
+					fetchSb(true)
 				}).catch((err) => {
 					saveSigRef.current = null
 					setSaveStatus({ state: 'error', msg: friendlyError(err) })

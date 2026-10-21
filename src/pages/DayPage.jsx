@@ -176,21 +176,23 @@ export default function DayPage({
 							return (
 								<div key={key}>
 								<ExerciseItem
+									workoutId={selectedWorkout.id}
+									itemKey={key}
 									name={name}
 									reps={reps}
 									note={note}
 									index={index}
-										checked={series === 2}
-										partial={series === 1}
-										blocked={editingRoutine || isResting || weightModal != null || cardioModal != null || warmupModal != null || customCreateMod != null || customLogMod != null}
-										restLeft={restLeft}
+									checked={series === 2}
+									partial={series === 1}
+									blocked={editingRoutine || isResting || weightModal != null || cardioModal != null || warmupModal != null || customCreateMod != null || customLogMod != null}
+									restLeft={series === 1 && isResting ? restLeft : 0}
 									lastWeight={prev?.weight_kg != null ? displayWeight(prev.weight_kg, weightUnit) : null}
 									lastReps={prev?.reps ?? null}
 									weightUnit={weightUnit}
 									history={exerciseId ? (recentW[exerciseId] ?? null) : null}
-									onToggle={() => { if (!editingRoutine) handleToggleCheck(selectedWorkout.id, index, name, reps) }}
+									onToggle={handleToggleCheck}
 									expanded={expandedKey === key}
-									onExpand={() => toggleExpand(key)}
+									onExpand={toggleExpand}
 									bundle={getExerciseBundle(name)}
 								/>
 								{editingRoutine && (

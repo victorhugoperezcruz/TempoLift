@@ -7,14 +7,53 @@ const SEX_OPTIONS = [
 	{ value: 'otro', label: 'Otro' },
 ]
 
+function shouldDropUp(el) {
+	if (!el || typeof window === 'undefined') return false
+	const rect = el.getBoundingClientRect()
+	const needed = 236 // 224px max-height + gap + margen
+
+	const dayList = el.closest('.day-list')
+	if (dayList) {
+		const listRect = dayList.getBoundingClientRect()
+		const belowInList = listRect.bottom - rect.bottom
+		const aboveInList = rect.top - listRect.top
+		if (belowInList < needed && aboveInList > belowInList) return true
+	}
+
+	const modal = el.closest('.modal-card')
+	if (modal) {
+		const modalRect = modal.getBoundingClientRect()
+		const belowInModal = modalRect.bottom - rect.bottom - 12
+		const aboveInModal = rect.top - modalRect.top - 12
+		if (belowInModal < needed && aboveInModal > belowInModal) return true
+	}
+
+	const viewportBelow = window.innerHeight - rect.bottom - 96
+	const viewportAbove = rect.top - 16
+	return viewportBelow < needed && viewportAbove > viewportBelow
+}
+
 // Combobox personalizado (reemplaza al <select> vanilla): botón + lista
 // con el mismo sistema glassy de la app, navegable por teclado y con
 // soporte de tema claro/oscuro vía .theme-light.
 const CustomSelect = memo(function CustomSelect({ value, onChange, options = SEX_OPTIONS, placeholder = 'Selecciona…', ariaLabel = 'Seleccionar opción' }) {
 	const [open, setOpen] = useState(false)
+	const [dropUp, setDropUp] = useState(false)
 	const [active, setActive] = useState(-1)
 	const rootRef = useRef(null)
+	const listRef = useRef(null)
 	const selected = options.find((o) => o.value === value) ?? null
+
+	const toggleOpen = () => {
+		setOpen((prev) => {
+			const next = !prev
+			if (next) {
+				setDropUp(shouldDropUp(rootRef.current))
+				setActive(options.findIndex((o) => o.value === value))
+			}
+			return next
+		})
+	}
 
 	useEffect(() => {
 		if (!open) return
@@ -32,7 +71,22 @@ const CustomSelect = memo(function CustomSelect({ value, onChange, options = SEX
 			document.removeEventListener('touchstart', onPointer)
 			document.removeEventListener('keydown', onKey)
 		}
-	}, [open ])
+	}, [open])
+
+	useEffect(() => {
+		if (!open || !listRef.current) return
+		const listEl = listRef.current
+		const domIdx = active === -1 || active === options.length ? 0 : active + 1
+		const itemEl = listEl.children?.[domIdx]
+		if (!itemEl) return
+		const itemTop = itemEl.offsetTop
+		const itemBottom = itemTop + itemEl.offsetHeight
+		if (itemTop < listEl.scrollTop) {
+			listEl.scrollTop = Math.max(0, itemTop - 6)
+		} else if (itemBottom > listEl.scrollTop + listEl.clientHeight) {
+			listEl.scrollTop = itemBottom - listEl.clientHeight + 6
+		}
+	}, [open, active, options.length])
 
 	const pick = (v) => {
 		onChange(v)
@@ -43,8 +97,7 @@ const CustomSelect = memo(function CustomSelect({ value, onChange, options = SEX
 	const onTriggerKey = (e) => {
 		if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
 			e.preventDefault()
-			setOpen((v) => !v)
-			setActive(options.findIndex((o) => o.value === value))
+			toggleOpen()
 		}
 	}
 
@@ -70,7 +123,7 @@ const CustomSelect = memo(function CustomSelect({ value, onChange, options = SEX
 				aria-haspopup="listbox"
 				aria-expanded={open}
 				aria-label={ariaLabel}
-				onClick={() => { setOpen((v) => !v); setActive(options.findIndex((o) => o.value === value)) }}
+				onClick={toggleOpen}
 				onKeyDown={onTriggerKey}
 			>
 				<span className={selected ? 'custom-select-value' : 'custom-select-placeholder'}>
@@ -81,7 +134,7 @@ const CustomSelect = memo(function CustomSelect({ value, onChange, options = SEX
 				</svg>
 			</button>
 			{open && (
-				<ul className="custom-select-list glass-card" role="listbox" aria-label={ariaLabel} onKeyDown={onListKey} tabIndex={-1}>
+				<ul ref={listRef} className={`custom-select-list glass-card ${dropUp ? 'drop-up' : ''}`} role="listbox" aria-label={ariaLabel} onKeyDown={onListKey} tabIndex={-1}>
 					<li role="option" aria-selected={value === ''} className={`custom-select-option ${value === '' ? 'selected' : ''} ${active === options.length ? 'active' : ''}`}>
 						<button type="button" className="custom-select-option-btn is-clear" onClick={() => pick('')} onMouseEnter={() => setActive(options.length)}>
 							<span>{placeholder}</span>

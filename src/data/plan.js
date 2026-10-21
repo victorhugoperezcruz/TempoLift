@@ -46,6 +46,8 @@ export const workoutDays = [
 		exercises: [
 			['Sentadilla goblet con mancuerna', '2 x 10', 'Mancuerna al pecho'],
 			['Extensión de cuádriceps en máquina', '2 x 10-12', 'Tempo 3-1-1'],
+			['Curl de isquios tumbado en máquina', '2 x 10-12', 'Tempo 3-1-1'],
+			['Patada de glúteo en polea', '2 x 10 por pierna', 'Una pierna a la vez'],
 			['Aductores en máquina', '2 x 12', 'Tempo 3-1-1'],
 			['Abductores en máquina', '2 x 12', 'Tempo 3-1-1'],
 			['Pantorrilla de pie en máquina', '2 x 12', 'De pie'],
@@ -74,7 +76,9 @@ export const workoutDays = [
 		exercises: [
 			['Prensa de piernas en máquina', '2 x 10', 'Pies altos'],
 			['Curl de isquios sentado en máquina', '2 x 10-12', 'Tempo 3-1-1'],
+			['Extensión de cuádriceps en máquina', '2 x 10-12', 'Tempo 3-1-1'],
 			['Patada de glúteo en máquina', '2 x 10 por pierna', 'Una pierna a la vez'],
+			['Aductores en máquina', '2 x 12', 'Tempo 3-1-1'],
 			['Abductores en máquina', '2 x 12', 'Tempo 3-1-1'],
 			['Pantorrilla de pie en máquina', '2 x 12', 'De pie'],
 		],
@@ -242,6 +246,12 @@ export const ROUTINES_BY_GOAL = {
 	7: [1, 2, 3, 4, 5, 6, 7],
 }
 
+export const FULL_BODY_IDS = [6, 7]
+
+export function isFullBodyWorkout(workoutId) {
+	return FULL_BODY_IDS.includes(Number(workoutId))
+}
+
 // Construye el mapa semanal para una meta (descanso donde no toca entrenar).
 export function buildWeekMapForGoal(goal) {
 	const days = TRAINING_DAYS_BY_GOAL[goal] ?? TRAINING_DAYS_BY_GOAL[5]
@@ -250,6 +260,128 @@ export function buildWeekMapForGoal(goal) {
 		const pos = days.indexOf(i)
 		return pos === -1 ? { rest: true } : { workoutId: routines[pos] }
 	})
+}
+
+// Ajusta el mapa semanal al cambiar la meta en el perfil conservando los días
+// de la semana elegidos por el usuario y la rutina asignada a cada uno de esos
+// días (sin desplazar ni mezclar las rutinas que el usuario ya acomodó, y sin
+// mezclar full-body con rutinas divididas de 4-5 días). Si la meta es 1 día,
+// fuerza Full Body.
+export function adjustWeekMapForGoal(prevMap, nextGoal, protectedIds = new Set()) {
+	const goal = Math.min(7, Math.max(1, Number(nextGoal) || 5))
+	if (!Array.isArray(prevMap) || prevMap.length !== weekSchedule.length) {
+		return buildWeekMapForGoal(goal)
+	}
+
+	const currentEntries = prevMap
+		.map((s, idx) => (s && !s.rest ? { dayIdx: idx, workoutId: Number(s.workoutId) } : null))
+		.filter(Boolean)
+
+	if (currentEntries.length === 0) {
+		return buildWeekMapForGoal(goal)
+	}
+
+	// 1. Si bajan los días, quita desde el final de la semana (respetando días completados/activos)
+	const keptEntries = [...currentEntries]
+	while (keptEntries.length > goal) {
+		let removePos = -1
+		for (let i = keptEntries.length - 1; i >= 0; i -= 1) {
+			if (!protectedIds.has(keptEntries[i].workoutId)) {
+				removePos = i
+				break
+			}
+		}
+		if (removePos === -1) removePos = keptEntries.length - 1
+		keptEntries.splice(removePos, 1)
+	}
+
+	// 2. Caso especial: 1 solo día de entrenamiento → sí o sí Full Body (6 o 7)
+	if (goal === 1) {
+		const targetDay = keptEntries[0]?.dayIdx ?? TRAINING_DAYS_BY_GOAL[1][0]
+		const existingFb = currentEntries.find((e) => isFullBodyWorkout(e.workoutId))?.workoutId
+		const wid = existingFb ?? 6
+		return weekSchedule.map((_, i) => (i === targetDay ? { workoutId: wid } : { rest: true }))
+	}
+
+	// 3. Caso especial: 2 días → prioriza Full Body A y B (salvo split custom 8..12)
+	if (goal === 2) {
+		const targetCurated = ROUTINES_BY_GOAL[2]
+		const nextSlots = weekSchedule.map(() => ({ rest: true }))
+		const chosenDays = keptEntries.map((e) => e.dayIdx)
+		if (chosenDays.length < 2) {
+			const last = chosenDays[chosenDays.length - 1] ?? 1
+			for (let i = last + 1; i < weekSchedule.length && chosenDays.length < 2; i += 1) {
+				if (!chosenDays.includes(i)) chosenDays.push(i)
+			}
+			for (let i = weekSchedule.length - 1; i >= 0 && chosenDays.length < 2; i -= 1) {
+				if (!chosenDays.includes(i)) chosenDays.push(i)
+			}
+		}
+		chosenDays.sort((a, b) => a - b)
+		const used = new Set()
+		chosenDays.forEach((dIdx, pos) => {
+			const prevWid = keptEntries.find((e) => e.dayIdx === dIdx)?.workoutId
+			if (prevWid && (isFullBodyWorkout(prevWid) || prevWid >= 8) && !used.has(prevWid)) {
+				nextSlots[dIdx] = { workoutId: prevWid }
+				used.add(prevWid)
+			} else {
+				const pick = targetCurated.find((id) => !used.has(id)) ?? workoutDays.map((w) => w.id).find((id) => !used.has(id)) ?? targetCurated[pos]
+				nextSlots[dIdx] = { workoutId: pick }
+				used.add(pick)
+			}
+		})
+		return nextSlots
+	}
+
+	// 4. Metas de 3 a 7 días: conserva cada día ya configurado por el usuario
+	//    en su misma posición, limpiando full-body (6, 7) si pasa a 4-5 días.
+	const targetCurated = ROUTINES_BY_GOAL[goal] ?? ROUTINES_BY_GOAL[5]
+	const targetAllowsFullBody = targetCurated.some((id) => isFullBodyWorkout(id))
+
+	const result = weekSchedule.map(() => ({ rest: true }))
+	const usedWids = new Set()
+	const pendingFillDays = []
+
+	for (const entry of keptEntries) {
+		if (!targetAllowsFullBody && isFullBodyWorkout(entry.workoutId)) {
+			pendingFillDays.push(entry.dayIdx)
+		} else if (!usedWids.has(entry.workoutId)) {
+			result[entry.dayIdx] = { workoutId: entry.workoutId }
+			usedWids.add(entry.workoutId)
+		} else {
+			pendingFillDays.push(entry.dayIdx)
+		}
+	}
+
+	// Si faltan días por activar (ej. subir de 4 a 5 días), agrega días libres
+	// empezando después del último día activo y luego desde el final de la semana,
+	// sin mover ni alterar los días que el usuario ya tenía configurados.
+	const activeSet = new Set([...keptEntries.map((e) => e.dayIdx)])
+	if (activeSet.size < goal) {
+		const lastDay = keptEntries[keptEntries.length - 1].dayIdx
+		const candidateDays = []
+		for (let i = lastDay + 1; i < weekSchedule.length; i += 1) candidateDays.push(i)
+		for (let i = weekSchedule.length - 1; i >= 0; i -= 1) candidateDays.push(i)
+		for (const d of candidateDays) {
+			if (activeSet.size >= goal) break
+			if (!activeSet.has(d)) {
+				activeSet.add(d)
+				pendingFillDays.push(d)
+			}
+		}
+	}
+
+	pendingFillDays.sort((a, b) => a - b)
+	const pool = [...targetCurated, ...workoutDays.map((w) => w.id)]
+	for (const dIdx of pendingFillDays) {
+		const pick = pool.find((id) => !usedWids.has(id))
+		if (pick != null) {
+			result[dIdx] = { workoutId: pick }
+			usedWids.add(pick)
+		}
+	}
+
+	return result
 }
 
 // Splits famosos para personalizar la semana. Cada uno trae su mapa

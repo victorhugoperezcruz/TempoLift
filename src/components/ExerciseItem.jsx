@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { formatRest } from '../lib/format.js'
 import { translateTerm, translateTerms } from '../lib/terms.js'
 import { ATTRIBUTION, DATASET_REPO, getMediaCandidates, getRepoVideoUrl } from '../services/exercisesApi.js'
@@ -30,13 +30,25 @@ function useMediaRunner(candidates, posters) {
   }
   // Reset al cambiar de variante
   const key = sources[0] ?? 'none'
-  return { src, failed, onError, resetKey: key }
+  return { src, poster: posters[0] ?? null, failed, onError, resetKey: key }
 }
 
 function MainViewer({ entry, enlarged, onToggleSize }) {
   const media = useMemo(() => getMediaCandidates(entry), [entry])
-  const { src, failed, onError, resetKey } = useMediaRunner(media.gifs, media.images)
+  const { src, poster, failed, onError, resetKey } = useMediaRunner(media.gifs, media.images)
   const [loaded, setLoaded] = useState(false)
+  const [pageHidden, setPageHidden] = useState(() => (typeof document !== 'undefined' ? document.hidden : false))
+
+  // Si la pestaña pasa a segundo plano, pausa la decodificación del GIF
+  // mostrando el frame estático (JPG) para no consumir CPU/GPU en fondo.
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const onVis = () => setPageHidden(document.hidden)
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [])
+
+  const displaySrc = pageHidden && poster ? poster : src
 
   if (!entry.gif) {
     // Ejercicio de peso corporal sin GIF en el dataset: tarjeta instructiva
@@ -51,7 +63,7 @@ function MainViewer({ entry, enlarged, onToggleSize }) {
   return (
     <div className={`gif-wrap ${enlarged ? 'enlarged' : ''}`}>
       {!loaded && !failed && <span className="spinner" aria-hidden="true" />}
-      {!failed && src ? (
+      {!failed && displaySrc ? (
         <button
           key={resetKey}
           type="button"
@@ -61,7 +73,7 @@ function MainViewer({ entry, enlarged, onToggleSize }) {
           title={enlarged ? 'Clic para reducir' : 'Clic para ampliar'}
         >
           <img
-            src={src}
+            src={displaySrc}
             alt={`Animación de ${entry.name}`}
             className="exercise-gif"
             loading="lazy"
@@ -147,7 +159,7 @@ function VariantCarousel({ items, activeId, onSelect }) {
   )
 }
 
-function ExerciseItem({ name, reps, note, index, checked, partial, blocked, restLeft = 0, lastWeight, lastReps, weightUnit = 'lb', history, onToggle, expanded, onExpand, bundle }) {
+function ExerciseItem({ workoutId, itemKey, name, reps, note, index, checked, partial, blocked, restLeft = 0, lastWeight, lastReps, weightUnit = 'lb', history, onToggle, expanded, onExpand, bundle }) {
   const [activeId, setActiveId] = useState(null)
   const [enlarged, setEnlarged] = useState(false)
   const primary = bundle?.primary ?? null
@@ -158,6 +170,8 @@ function ExerciseItem({ name, reps, note, index, checked, partial, blocked, rest
   // Serie en curso (misma máquina de estados que la casilla: onToggle la avanza).
   const series = checked ? 2 : partial ? 1 : 0
   const resting = blocked && restLeft > 0
+  const handleToggle = () => onToggle(workoutId, index, name, reps)
+  const handleExpand = () => onExpand(itemKey)
 
   return (
     <div className={`exercise-row ${checked ? 'is-checked' : ''} ${partial ? 'is-partial' : ''} ${expanded ? 'is-expanded' : ''}`}>
@@ -168,7 +182,7 @@ function ExerciseItem({ name, reps, note, index, checked, partial, blocked, rest
           role="checkbox"
           aria-checked={partial ? 'mixed' : checked}
           aria-label={checked ? `Desmarcar ${name}` : partial ? `Marcar serie 2 de ${name}` : `Marcar serie 1 de ${name}`}
-          onClick={onToggle}
+          onClick={handleToggle}
           className={`custom-check ${checked ? 'checked' : ''} ${partial ? 'partial' : ''}`}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true" className="check-svg">
@@ -177,7 +191,7 @@ function ExerciseItem({ name, reps, note, index, checked, partial, blocked, rest
           <span className="check-ripple" aria-hidden="true" />
         </button>
 
-        <button type="button" onClick={onExpand} className="exercise-text" aria-expanded={expanded}>
+        <button type="button" onClick={handleExpand} className="exercise-text" aria-expanded={expanded}>
           <span className="exercise-title">
             <span className={`exercise-num ${checked ? 'done' : ''}`}>{String(index + 1).padStart(2, '0')}</span>
             <span className={checked ? 'line-through-anim' : ''}>{name}</span>
@@ -187,7 +201,7 @@ function ExerciseItem({ name, reps, note, index, checked, partial, blocked, rest
 
         <button
           type="button"
-          onClick={onExpand}
+          onClick={handleExpand}
           aria-expanded={expanded}
           aria-label={expanded ? `Ocultar animación de ${name}` : `Ver animación de ${name}`}
           className={`expand-btn ${expanded ? 'open' : ''}`}
@@ -213,7 +227,7 @@ function ExerciseItem({ name, reps, note, index, checked, partial, blocked, rest
             type="button"
             className="set-btn"
             disabled={blocked}
-            onClick={onToggle}
+            onClick={handleToggle}
             aria-label={`Marcar serie 1 de ${name}`}
             title="Anota el peso y las repeticiones de la serie 1"
           >
@@ -225,7 +239,7 @@ function ExerciseItem({ name, reps, note, index, checked, partial, blocked, rest
             type="button"
             className="set-btn"
             disabled={blocked}
-            onClick={onToggle}
+            onClick={handleToggle}
             aria-label={resting ? `Serie 2 de ${name} disponible al terminar el descanso` : `Marcar serie 2 de ${name}`}
             title={resting ? 'Descansa antes de la serie 2' : 'Anota el peso y las repeticiones de la serie 2'}
           >

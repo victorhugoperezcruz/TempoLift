@@ -72,8 +72,12 @@ export function useRestTimer(uid) {
 				setRestLeft((prev) => (prev === remain ? prev : remain))
 			}
 		}
+		const tick = () => {
+			if (typeof document !== 'undefined' && document.hidden) return
+			update()
+		}
 		update()
-		const id = setInterval(update, 500)
+		const id = setInterval(tick, 1000)
 		const onVisible = () => {
 			if (!document.hidden) update()
 		}
