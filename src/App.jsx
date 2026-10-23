@@ -2,14 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from './supabaseClient.js'
 import { BootSkeleton } from './components/Skeleton.jsx'
 import { useDelayedVisible } from './hooks/useDelayedVisible.js'
-import { ensureDayRows, fetchExerciseIdsByNames, fetchLastWeights, fetchRecentLogs, fetchUserExerciseNames, saveDaySession } from './services/planSync.js'
+import { ensureDayRows, fetchExerciseIdsByNames, fetchLastWeights, fetchLastWeightsByName, fetchRecentLogs, fetchUserExerciseNames, saveDaySession } from './services/planSync.js'
 import { getCatalogExerciseNames, getExerciseBundle } from './services/exercisesApi.js'
 import {
 	DEFAULT_WEEK_MAP, DEFAULT_BODY_KG, DEFAULT_CARDIO_MIN, DEFAULT_WARMUP_MIN,
 	WARMUP_MET, LB_TO_KG, KCAL_PER_KG_MOVED,
 	workoutDays, weekSchedule,
 	adjustWeekMapForGoal, isFullBodyWorkout, readWeekMap, persistWeekMap,
-	readWeekGoal, persistWeekGoal, weightHintFor, EXERCISE_RENAMES,
+	readWeekGoal, persistWeekGoal, weightHintFor, EXERCISE_RENAMES, lastWeightForName,
 } from './data/plan.js'
 import { readRoutineOverrides, persistRoutineOverrides, applyRoutineOverrides } from './lib/routineOverrides.js'
 import { readWeightUnit, persistWeightUnit, displayWeight, displayToLb, convertInputUnit, bodyKgToDisplay, displayToBodyKg } from './lib/weights.js'
@@ -46,6 +46,9 @@ function App() {
 	const [routineOverrides, setRoutineOverrides] = useState(() => readRoutineOverrides(null))
 	// Modo edición dentro de la rutina (sustituir ejercicios).
 	const [editingRoutine, setEditingRoutine] = useState(false)
+	// Último peso por NOMBRE de ejercicio (todo el historial): el modal de
+	// sustitución lo usa para mostrar qué opciones ya tienen tu peso.
+	const [lastByName, setLastByName] = useState(null)
 	const [theme, setTheme] = useState(() => readTheme())
 	const [openPhase, setOpenPhase] = useState('strength')
 	// Series por ejercicio: { [workoutId]: { [index]: 1 | 2 } }. Solo suma al progreso con las 2 series.
@@ -862,7 +865,11 @@ function App() {
 			return { ...prev, [wid]: day }
 		})
 		setDayComplete(false)
-		showSnack(`${newName} guardado en tu rutina`)
+		// Feedback explícito: el peso va ligado a cada ejercicio, no al hueco.
+		const prevLog = lastWeightForName(newName, lastByName)
+		showSnack(prevLog?.weight_kg != null
+			? `${newName} · tu último peso: ${displayWeight(prevLog.weight_kg, weightUnit)} ${weightUnit} × ${prevLog.reps ?? '—'}`
+			: `${newName} guardado · ejercicio nuevo, sin peso previo`)
 	}
 
 	// Restaura los ejercicios originales de una rutina.
@@ -1269,22 +1276,28 @@ function App() {
 			if (cancelled) return
 			setPlanIds(ids)
 			// Hereda historial de nombres anteriores (renombres del plan,
-			// p. ej. Pantorrilla ← Biserie): alias { idNuevo: idViejo }.
+			// p. ej. Pantorrilla ← Biserie): alias { idNuevo: [idViejo, ...] }.
+			// Un nombre viejo puede alimentar a varios nuevos (mancuernas y
+			// máquina), así que se guarda nombreViejo → [idsNuevos].
 			let aliasMap = {}
 			try {
-				const newIdByOldName = {}
-				const oldNames = []
+				const newIdsByOldName = {}
 				workout.exercises.forEach(([name], i) => {
+					const newId = ids.byIndex[i]
+					if (newId == null) return
 					for (const old of EXERCISE_RENAMES[name] ?? []) {
-						oldNames.push(old)
-						newIdByOldName[old] = ids.byIndex[i]
+						;(newIdsByOldName[old] ??= []).push(newId)
 					}
 				})
+				const oldNames = Object.keys(newIdsByOldName)
 				if (oldNames.length > 0) {
 					const legacyIds = await fetchExerciseIdsByNames(supabase, session.user.id, oldNames)
 					for (const [oldName, oldId] of Object.entries(legacyIds)) {
-						const newId = newIdByOldName[oldName]
-						if (newId != null && newId !== oldId) aliasMap[newId] = oldId
+						for (const newId of newIdsByOldName[oldName] ?? []) {
+							if (newId === oldId) continue
+							const list = (aliasMap[newId] ??= [])
+							if (!list.includes(oldId)) list.push(oldId)
+						}
 					}
 				}
 			} catch {
@@ -1305,12 +1318,25 @@ function App() {
 		return () => { cancelled = true }
 	}, [session?.user?.id, selectedDay, selectedWorkout])
 
+	// Al entrar al modo edición de la rutina: trae el último peso por nombre
+	// (incluye ejercicios que ya no están en el plan) para el modal de cambio.
+	useEffect(() => {
+		const uid = session?.user?.id
+		if (!uid || !editingRoutine) return
+		let cancelled = false
+		fetchLastWeightsByName(supabase, uid)
+			.then((map) => { if (!cancelled) setLastByName(map) })
+			.catch(() => { if (!cancelled) setLastByName((prev) => prev ?? {}) })
+		return () => { cancelled = true }
+	}, [session?.user?.id, editingRoutine])
+
 	// Orden de la semana por usuario: cada uno organiza sus días sin afectar
 	// a otros. Al cambiar de cuenta se carga el suyo (o el orden por defecto).
 	useEffect(() => {
 		setWeekMap(readWeekMap(session?.user?.id) ?? DEFAULT_WEEK_MAP.map((s) => ({ ...s })))
 		setWeekGoal(readWeekGoal(session?.user?.id))
 		setRoutineOverrides(readRoutineOverrides(session?.user?.id))
+		setLastByName(null)
 		setEnabledVolumeCharts(readVolumeCharts(session?.user?.id))
 		setEditingWeek(false)
 		setEditingRoutine(false)
@@ -1767,6 +1793,8 @@ function App() {
 				onSwapExercise={swapExercise}
 				onResetRoutine={resetRoutine}
 				swappedIdxs={swappedIdxs}
+				baseExercises={workoutDays.find((w) => w.id === selectedWorkout.id)?.exercises ?? null}
+				lastByName={lastByName}
 			/>
 		)
 	}

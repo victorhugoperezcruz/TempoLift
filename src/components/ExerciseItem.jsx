@@ -159,7 +159,7 @@ function VariantCarousel({ items, activeId, onSelect }) {
   )
 }
 
-function ExerciseItem({ workoutId, itemKey, name, reps, note, index, checked, partial, blocked, restLeft = 0, lastWeight, lastReps, weightUnit = 'lb', history, onToggle, expanded, onExpand, bundle }) {
+function ExerciseItem({ workoutId, itemKey, name, reps, note, index, checked, partial, blocked, restLeft = 0, lastWeight, lastReps, weightUnit = 'lb', history, onToggle, expanded, onExpand, bundle, editing = false, swapped = false, onSwap }) {
   const [activeId, setActiveId] = useState(null)
   const [enlarged, setEnlarged] = useState(false)
   const primary = bundle?.primary ?? null
@@ -218,11 +218,30 @@ function ExerciseItem({ workoutId, itemKey, name, reps, note, index, checked, pa
           {lastWeight != null ? `${lastWeight} ${weightUnit} × ${lastReps ?? '—'}` : reps}
         </span>
         {(checked || partial) && (
-          <span className="foot-chip series-chip">{checked ? '2/2 ✓' : `1/2${blocked ? ' · descansa' : ''}`}</span>
+          <span className="foot-chip series-chip">{checked ? '2/2 ✓' : `1/2${blocked && !editing ? ' · descansa' : ''}`}</span>
+        )}
+        {/* Modo edición: el botón de cambio vive DENTRO de la card (antes
+            quedaba suelto debajo y se salía del borde). */}
+        {editing && (
+          <>
+            {swapped && <span className="foot-chip swap-chip">Personalizado</span>}
+            <button
+              type="button"
+              className="set-btn swap-btn"
+              onClick={() => onSwap?.(index)}
+              aria-label={`Cambiar ${name} por otro ejercicio`}
+              title="Elige otro ejercicio; tu peso se guarda por ejercicio"
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true" className="swap-icon">
+                <path d="M3 5h9l-2.5-2.5M13 11H4l2.5 2.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Cambiar ejercicio
+            </button>
+          </>
         )}
         {/* Affordance explícito: la casilla sola no dejaba claro que son 2
             marcas. Mismo onToggle (misma máquina de estados y descanso). */}
-        {series === 0 && (
+        {!editing && series === 0 && (
           <button
             type="button"
             className="set-btn"
@@ -234,7 +253,7 @@ function ExerciseItem({ workoutId, itemKey, name, reps, note, index, checked, pa
             Marcar serie 1
           </button>
         )}
-        {series === 1 && (
+        {!editing && series === 1 && (
           <button
             type="button"
             className="set-btn"
@@ -250,7 +269,7 @@ function ExerciseItem({ workoutId, itemKey, name, reps, note, index, checked, pa
             )}
           </button>
         )}
-        {primary && (
+        {primary && !editing && (
           <>
             <span className="foot-chip">{translateTerm(primary.target) ?? primary.target}</span>
             <span className="foot-chip dim">{translateTerm(primary.equipment) ?? primary.equipment}</span>

@@ -137,25 +137,45 @@ export async function fetchExerciseIdsByNames(supabase, userId, names) {
 	return map
 }
 
-// Rellena huecos: si el id nuevo no tiene dato y su alias sí, lo hereda.
+// Valores del aliasMap: un id o una lista de ids (varios nombres viejos).
+function aliasIds(value) {
+	return (Array.isArray(value) ? value : [value]).filter((v) => v != null)
+}
+
+function byRecent(a, b) {
+	return String(b?.created_at ?? '').localeCompare(String(a?.created_at ?? ''))
+}
+
+// Rellena huecos: si el id nuevo no tiene dato y sus alias sí, lo hereda.
+// aliasMap = { idNuevo: idViejo | [idViejo, ...] }. Con varios alias:
+// listas → se mezclan por fecha (recorte a `limit`); objetos → el más reciente.
 // Puro y testeable; vale para objetos (último peso) y listas (recientes).
-export function applyHistoryAliases(map, aliasMap) {
+export function applyHistoryAliases(map, aliasMap, limit = 4) {
 	const out = { ...(map ?? {}) }
-	for (const [newId, oldId] of Object.entries(aliasMap ?? {})) {
-		if (newId == null || oldId == null) continue
+	for (const [newId, value] of Object.entries(aliasMap ?? {})) {
+		if (newId == null) continue
 		const cur = out[newId]
 		const empty = cur == null || (Array.isArray(cur) && cur.length === 0)
-		if (empty && out[oldId] != null) out[newId] = out[oldId]
+		if (!empty) continue
+		const found = aliasIds(value).map((id) => map?.[id]).filter((v) => v != null && !(Array.isArray(v) && v.length === 0))
+		if (found.length === 0) continue
+		if (found.length === 1) out[newId] = found[0]
+		else if (Array.isArray(found[0])) out[newId] = found.flat().sort(byRecent).slice(0, limit)
+		else out[newId] = [...found].sort(byRecent)[0]
 	}
 	return out
 }
 
+function allIdsWithAliases(exerciseIds, aliasMap) {
+	return [...new Set([...(exerciseIds ?? []), ...Object.values(aliasMap ?? {}).flatMap(aliasIds)])]
+}
+
 export async function fetchLastWeights(supabase, userId, exerciseIds, aliasMap = {}) {
-	const all = [...new Set([...(exerciseIds ?? []), ...Object.values(aliasMap ?? {}).filter((v) => v != null)])]
+	const all = allIdsWithAliases(exerciseIds, aliasMap)
 	if (all.length === 0) return {}
 	const { data, error } = await supabase
 		.from('set_logs')
-		.select('exercise_id, weight_kg, reps')
+		.select('exercise_id, weight_kg, reps, created_at')
 		.eq('user_id', userId)
 		.in('exercise_id', all)
 		.order('created_at', { ascending: false })
@@ -171,7 +191,7 @@ export async function fetchLastWeights(supabase, userId, exerciseIds, aliasMap =
 // Devuelve { [exercise_id]: [{ weight_kg, reps, set_number, created_at }] }
 // en orden reciente → antiguo, recortado a `perExercise` por ejercicio.
 export async function fetchRecentLogs(supabase, userId, exerciseIds, perExercise = 4, aliasMap = {}) {
-	const all = [...new Set([...(exerciseIds ?? []), ...Object.values(aliasMap ?? {}).filter((v) => v != null)])]
+	const all = allIdsWithAliases(exerciseIds, aliasMap)
 	if (all.length === 0) return {}
 	const { data, error } = await supabase
 		.from('set_logs')
@@ -186,7 +206,27 @@ export async function fetchRecentLogs(supabase, userId, exerciseIds, perExercise
 		const list = map[row.exercise_id] ?? (map[row.exercise_id] = [])
 		if (list.length < perExercise) list.push(row)
 	}
-	return applyHistoryAliases(map, aliasMap)
+	return applyHistoryAliases(map, aliasMap, perExercise)
+}
+
+// Última serie registrada por NOMBRE de ejercicio (todo el historial del
+// usuario). Sirve al modal de sustitución para mostrar qué ejercicios ya
+// tienen peso guardado: { [nombre]: { weight_kg, reps, created_at } }.
+export async function fetchLastWeightsByName(supabase, userId) {
+	const { data, error } = await supabase
+		.from('set_logs')
+		.select('weight_kg, reps, created_at, exercises (name)')
+		.eq('user_id', userId)
+		.order('created_at', { ascending: false })
+		.limit(2000)
+	if (error) throw error
+	const map = {}
+	for (const row of data ?? []) {
+		const name = row?.exercises?.name
+		if (!name || map[name]) continue
+		map[name] = { weight_kg: row.weight_kg, reps: row.reps, created_at: row.created_at }
+	}
+	return map
 }
 
 // Nombres de ejercicios del usuario (para el combobox de extras).

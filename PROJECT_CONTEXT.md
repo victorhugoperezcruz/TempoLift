@@ -1,6 +1,6 @@
 # TempoLift — Archivo de Contexto del Proyecto
 
-> Actualizado el 2026-10-21: catálogo separado por implemento (56 ejercicios en `BUNDLES`), 12 rutinas en `workoutDays` (Pierna 1 y Pierna 2 ampliadas a 7 ejercicios cada una cubriendo músculos rezagados, más rutinas PPL y Upper/Lower), selector de splits famosos (`SplitPickerModal.jsx`), sustitución persistente de ejercicios por rutina (`routineOverrides.js` + `SwapExerciseModal.jsx` con buscador en tiempo real al abrir el catálogo completo), `CustomSelect` con scroll interno + apertura inteligente hacia arriba (`drop-up`) + fix de stacking context en `.day-row`, ajuste de meta semanal que preserva los días editados sin mezclar rutinas (forzando Full Body en 1 día), reinicio semanal inteligente (`computeDoneWorkoutIds`) que resuelve reposiciones y acarreos automáticamente, y optimización integral de rendimiento (cero consumo de GPU/CPU en segundo plano al pausar orbes y GIFs con `document.hidden`, memoización real de `ExerciseItem` durante la cuenta atrás, y consultas a Supabase en lote y en paralelo).
+> Actualizado el 2026-10-23: corrección crítica de ligadura y herencia de pesos históricos en la separación por implemento (`EXERCISE_RENAMES` multi-alias + mezcla cronológica en `applyHistoryAliases` + desacople de Sentadilla goblet vs Prensa de piernas en máquina), consulta de último peso por nombre (`fetchLastWeightsByName` + `lastWeightForName`), retiro de etiquetas obsoletas `1 x al fallo` unificando a `2 x 10-12`, rediseño integral de UX/UI en sustitución de ejercicios (botón `Cambiar ejercicio` y chip `Personalizado` integrados dentro de `ExerciseItem.jsx` sin desbordes, modal con sección prioritaria `Ya los hiciste · recuperas tu peso`, feedback preventivo por `Snackbar`), y corrección de alineación del botón `Editar` en `HistoryPage.jsx`. Previamente (2026-10-21): catálogo curado de 56 ejercicios en `BUNDLES`, 12 rutinas en `workoutDays` (Pierna 1 y Pierna 2 a 7 ejercicios, PPL, Upper/Lower), selector de splits famosos (`SplitPickerModal.jsx`), sustitución persistente (`routineOverrides.js`), `CustomSelect` con scroll y apertura inteligente (`drop-up`), ajuste de meta semanal sin desorden (`adjustWeekMapForGoal`), reinicio semanal inteligente (`computeDoneWorkoutIds`), y optimización integral de rendimiento GPU/segundo plano.
 > Fuente de verdad: `src/App.jsx` (~1880 líneas, orquestador), `src/data/plan.js`, `src/lib/*` (`routineOverrides.js`, `weekly.js`, `health.js`, `terms.js`, etc.), `src/hooks/useAuth.js` + `useRestTimer.js` + `useDelayedVisible.js`, `src/components/*` (incl. `SplitPickerModal.jsx`, `SwapExerciseModal.jsx`, `CustomSelect.jsx`, `WorkoutModals.jsx`, `Charts.jsx`), `src/pages/*` (Login/Home/Day/History/Profile), `src/services/*`, `src/supabaseClient.js`, `src/main.jsx`, `src/index.css`, `src/App.css`, `package.json`, `vite.config.js`, `tailwind.config.js`, `index.html`, `supabase/migrations/*.sql`.
 
 ## 1. Qué es
@@ -36,7 +36,7 @@ index.html                          # título TempoLift, div#root
 public/favicon.svg, public/icons.svg
 src/main.jsx                        # bootstrap React (sin cambios)
 src/App.jsx                         # ~1880 líneas: orquestador (estado + handlers + effects + switch de páginas). Sin JSX de vistas ni helpers puros
-src/data/plan.js                    # ~570 líneas: workoutDays (12 rutinas), weekSchedule, SPLIT_TEMPLATES, adjustWeekMapForGoal, FULL_BODY_IDS, consts kcal, hints, EXERCISE_RENAMES
+src/data/plan.js                    # ~600 líneas: workoutDays (12 rutinas, 2x series fijas sin 'al fallo'), weekSchedule, SPLIT_TEMPLATES, adjustWeekMapForGoal, FULL_BODY_IDS, consts kcal, hints, EXERCISE_RENAMES multi-alias + lastWeightForName
 src/lib/format.js                   # formatRest + FINE_POINTER
 src/lib/weights.js                  # sistema lb/kg (display/convert) + peso corporal display
 src/lib/profile.js                  # tema, perfil local, bodyKg, isProfileComplete
@@ -54,18 +54,18 @@ src/components/Phase.jsx, BackgroundOrbs.jsx, RestPill.jsx, MoveButtons.jsx, Uni
 src/components/Charts.jsx           # CalorieBars + WeekBars + TrendLine con selección interactiva de nodos (SVG puro)
 src/components/CustomSelect.jsx     # combobox glassy con scroll interno, auto-scroll a opción activa y apertura hacia arriba (shouldDropUp / .drop-up)
 src/components/SplitPickerModal.jsx # modal para elegir un split famoso (PPL, Upper/Lower, Arnold, Full-body…) o armar la semana día por día
-src/components/SwapExerciseModal.jsx # modal para sustituir un ejercicio de la rutina (mismo músculo, misma zona o catálogo completo con buscador)
+src/components/SwapExerciseModal.jsx # modal para sustituir un ejercicio de la rutina (mismo músculo, misma zona, 'Ya los hiciste · recuperas tu peso' y catálogo completo con buscador en tiempo real)
 src/components/OnboardingModal.jsx  # onboarding cuentas nuevas
 src/components/WorkoutModals.jsx    # WeightModal + CardioModal + WarmupModal (reciben `theme`: fuera del main llevan variante `modal-light`)
 src/components/CustomExerciseModal.jsx  # modal de extra: modo create (combobox+paso+reps+series, anota S1) y modo log (solo peso+reps)
 src/components/CustomExerciseRow.jsx    # fila de extra (check + nota Extra + última marca + × con doble toque + botón Marcar serie N)
 src/components/SearchCombobox.jsx       # input + lista filtrable con texto libre y teclado (para elegir extra de la BD)
-src/components/ExerciseItem.jsx     # fila ejercicio + visor + carrusel + historial (partial/blocked/lastWeight/lastReps/history)
+src/components/ExerciseItem.jsx     # fila ejercicio + visor + carrusel + historial + botón integrado 'Cambiar ejercicio' en modo edición (partial/blocked/lastWeight/lastReps/history/editing/swapped)
 src/components/BottomNav.jsx        # nav fija Inicio/Historial/Perfil (acepta `value={null}` = ninguna activa, usado en detalle de día)
 src/components/Skeleton.jsx         # Boot/Home/Day/History/Profile/Sets skeletons + SkeletonCard (ver F14)
-src/pages/LoginPage.jsx, HomePage.jsx, DayPage.jsx, HistoryPage.jsx, ProfilePage.jsx  # vistas puras (props, sin estado global)
+src/pages/LoginPage.jsx, HomePage.jsx, DayPage.jsx, HistoryPage.jsx, ProfilePage.jsx  # vistas puras (props, sin estado global; HistoryPage con botón Editar alineado)
 src/services/exercisesApi.js        # catálogo MEDIA + BUNDLES (56 ejercicios separados por implemento) + getSubstitutes + getExerciseThumb
-src/services/planSync.js            # puente plan local ↔ Supabase (ensureDayRows, fetchLastWeights, fetchRecentLogs, saveDaySession)
+src/services/planSync.js            # puente plan local ↔ Supabase (ensureDayRows, fetchLastWeights con multi-alias, fetchRecentLogs cronológico, fetchLastWeightsByName, saveDaySession)
 src/supabaseClient.js               # createClient + normaliza URL (`/rest/v1` fuera) + aviso claro si faltan VITE_* (requiere reiniciar `npm run dev`)
 src/index.css                       # Tailwind + base body
 src/App.css                         # sistema visual completo (incluye fix de stacking context en .day-row y scroll/drop-up en .custom-select-list)
@@ -84,8 +84,8 @@ supabase/check_security.sql         # script de revisión
 - `globalRules`: `{ tempo: '3-1-1', rest: '2-3 min' }`.
 - `workoutDays[12]`:
   - **Split de la casa (ids 1–5)**:
-    1. `Pecho y espalda` (6 ej: Press inclinado mancuernas, Remo inclinado mancuernas, Press plano mancuernas, Jalón al pecho máquina, Aperturas mancuernas, Remo a una mano mancuerna).
-    2. `Pierna 1` · *Cuádriceps y glúteo* (**7 ej**: Sentadilla goblet con mancuerna, Extensión de cuádriceps en máquina, **Curl de isquios tumbado en máquina**, **Patada de glúteo en polea**, Aductores en máquina, Abductores en máquina, Pantorrilla de pie en máquina).
+    1. `Pecho y espalda` (6 ej: Press inclinado mancuernas, Remo inclinado mancuernas, Press plano mancuernas, Jalón al pecho máquina, Aperturas mancuernas [2 x 10-12], Remo a una mano mancuerna [2 x 10-12]). Todas las rutinas manejan 2 series para coincidir exactamente con el sistema de 2 marcas por ejercicio (se eliminaron las etiquetas confusas '1 x al fallo').
+    2. `Pierna 1` · *Cuádriceps y glúteo* (**7 ej**: Sentadilla goblet con mancuerna [sin alias heredado de prensa], Extensión de cuádriceps en máquina, **Curl de isquios tumbado en máquina**, **Patada de glúteo en polea**, Aductores en máquina, Abductores en máquina, Pantorrilla de pie en máquina).
     3. `Hombro y brazo` (7 ej: Press militar mancuernas, Elevaciones laterales mancuernas, Skull crusher mancuernas, Curl predicador mancuernas, Patada de tríceps mancuerna, Curl martillo mancuernas, Curl de bíceps en máquina).
     4. `Pierna 2` · *Isquiosurales y glúteo* (**7 ej**: Prensa de piernas en máquina, Curl de isquios sentado en máquina, **Extensión de cuádriceps en máquina**, Patada de glúteo en máquina, **Aductores en máquina**, Abductores en máquina, Pantorrilla de pie en máquina).
     5. `Torso mixto` (5 ej: Press inclinado máquina, Jalón agarre invertido máquina, Press plano máquina, Remo en T máquina, Elevación lateral máquina).
@@ -93,7 +93,7 @@ supabase/check_security.sql         # script de revisión
     6. `Cuerpo completo A` (7 ej: pecho, espalda, pierna, hombro, brazo y pantorrilla).
     7. `Cuerpo completo B` (7 ej: torso, glúteo, isquios, hombro, brazo y abductores).
   - **Rutinas de splits famosos (ids 8–12)**:
-    8. `Empuje` (Push, 7 ej), 9. `Tirón` (Pull, 6 ej), 10. `Pierna PPL` (5 ej), 11. `Tren superior` (Upper, 6 ej), 12. `Tren inferior` (Lower, 6 ej).
+    8. `Empuje` (Push, 7 ej, Fondos en máquina en 2 x 10-12), 9. `Tirón` (Pull, 6 ej, Remo a una mano en 2 x 10-12), 10. `Pierna PPL` (5 ej), 11. `Tren superior` (Upper, 6 ej), 12. `Tren inferior` (Lower, 6 ej).
 - `SPLIT_TEMPLATES[6]`: `tempolift-5` (El plan de la casa, 5 días), `ppl-3` (Push · Pull · Legs, 3 días), `upper-lower-4` (Torso / Pierna ×2, 4 días), `arnold-3` (Arnold, 3 días), `fullbody-2` (Cuerpo completo, 2 días), `ppl-ul-5` (PPL + Torso/Pierna, 5 días). `findTemplateForMap(map)` detecta si el mapa actual coincide con alguno o es `'Semana personalizada'`.
 - `weekSchedule[7]` fijo Lun-Dom (base de etiquetas). Plan por meta: `TRAINING_DAYS_BY_GOAL` (1:[Jue], 2:[Mié,Sáb], 3:[Mar,Jue,Sáb], 4:[Lun,Mar,Jue,Vie], 5:[Mié-Dom], 6:[Lun,Mar,Mié,Vie,Sáb,Dom], 7:toda) + `ROUTINES_BY_GOAL` (1:[6], 2:[6,7], 3:[6,4,3], 4:[1-4], 5:[1-5], 6:[1-6], 7:[1-7]).
 - `adjustWeekMapForGoal(prevMap, nextGoal, protectedIds)`: ajusta los días activos al cambiar la meta en el perfil conservando cada día ya configurado por el usuario en su misma posición (sin desplazar ni desordenar sus rutinas y sin mezclar Full Body `6/7` al pasar a splits de 4–5 días). Si `nextGoal === 1`, asigna sí o sí una rutina **Full Body** (`6` o `7`).
@@ -143,8 +143,18 @@ supabase/check_security.sql         # script de revisión
 ### F2 — Detalle de día y sustitución de ejercicios (`selectedWorkout != null`, `max-w-lg`)
 
 - Header con `‹ Días` a la izquierda y botón `Editar/Listo` (`editingRoutine`) a la derecha para personalizar los ejercicios de la rutina.
-- Modo edición de rutina (`editingRoutine`): cada ejercicio muestra un botón `Cambiar` que abre `SwapExerciseModal` (y badge `Tuyo` si ya fue sustituido), además de `Restablecer rutina` si hay cambios guardados (`routineOverrides.js`, persistido en `tempolift-routine-overrides-{uid}`).
-- `SwapExerciseModal`: sugiere primero ejercicios del **mismo músculo** (`sameMuscle`) y luego de la **misma zona** (`sameZone`). Al pulsar **Ver todo el catálogo**, despliega el catálogo completo junto con un **buscador en tiempo real** (insensible a acentos/mayúsculas, busca por nombre, músculo o equipo) para localizar cualquier ejercicio sin recorrer toda la lista.
+- Modo edición de rutina (`editingRoutine`):
+  - Banner explicativo superior en `DayPage.jsx` aclarando el modelo mental ("Tu peso va ligado a cada ejercicio, no al lugar en la rutina; los marcados como 'Ya lo hiciste' tienen historial"), botón `Listo` y `Restablecer rutina original`.
+  - Cada fila (`ExerciseItem.jsx`) integra el botón `Cambiar ejercicio` (`.set-btn.swap-btn` con icono svg) y el chip `Personalizado` (`.foot-chip.swap-chip`) **dentro del pie de la card (`.exercise-foot`)**, eliminando botones sueltos que causaban desbordes horizontales o desalineación visual.
+- `SwapExerciseModal`:
+  - En la parte superior muestra el ejercicio actual con su miniatura, etiquetas y último peso registrado.
+  - Opción destacada `Volver al original del plan` (si el ejercicio actual es una sustitución).
+  - Sección prioritaria **`Ya los hiciste · recuperas tu peso`** (en verde): lista los ejercicios con historial previo (`lastWeightForName`), ordenados por uso más reciente, mostrando explícitamente el badge `Ya lo hiciste · X lb × Y reps` para que el usuario sepa que no empieza de cero.
+  - Opciones sin historial muestran `Nuevo · sin peso previo` para total transparencia.
+  - Alerta preventiva si hoy ya se marcaron series del ejercicio (`todaySeries > 0`), aclarando que cambiarlo reinicia las series de hoy pero conserva intacto el historial en Supabase.
+  - Sugerencias organizadas por `Mismo músculo · recomendado`, `Misma zona` y botón `Ver todo el catálogo` con **buscador en tiempo real** (insensible a acentos/mayúsculas, por nombre, músculo o implemento).
+  - Botón de confirmación dinámico (`Cambiar` / `Elige uno`) con mensaje previo del peso con el que se comenzará.
+  - Al confirmar, un `Snackbar` notifica con precisión (`{newName} · tu último peso: ...` o `{newName} guardado · ejercicio nuevo, sin peso previo`).
 - `BottomNav` con `value={null}` en esta vista: la rutina no es ninguna pestaña, así que ninguna va activa (sin `aria-current`). `handleNav` cierra el día al navegar. Home/historial/perfil sí pasan `value={currentView}`.
 - Título `Día {posición} / {trainingCount}` (posición entre los días que entrenan, no el id). `name`, `focus`.
 - Si `planIds` tarda (>150ms, `showDaySkel`), la `routine-card` se reemplaza por `DaySkeleton` (cabecera y progreso, locales, se ven al instante).
@@ -276,6 +286,38 @@ supabase/check_security.sql         # script de revisión
   - `ensureDayRows` (`src/services/planSync.js`) agrupa las consultas de `exercises` y `routine_exercises` en lote con `.in(...)` e `insert`/`upsert` masivo (pasando de ~15 peticiones secuenciales por apertura de día a 2–3 consultas), y `fetchLastWeights` + `fetchRecentLogs` se ejecutan en paralelo con `Promise.all`.
   - `fetchSb` (`App.jsx`) consulta `routines` y `workout_sessions` en paralelo (`Promise.all`) con ventana de deduplicación de 8s entre cambios de pestaña (`fetchSb(true)` fuerza recarga al terminar sesión), y el efecto de estadísticas de `Mi perfil` espera a `!sbLoading` para no lanzar dos veces seguidas la consulta de `set_logs` (1000 filas).
   - `useAuth` (`src/hooks/useAuth.js`) conserva la misma referencia de `session` si el `user.id` no cambió en `INITIAL_SESSION` o `TOKEN_REFRESHED` al volver de segundo plano, evitando re-disparar efectos en cascada.
+
+### F18 — Ligadura de pesos por ejercicio, herencia multi-alias y UX de sustitución (`planSync.js`, `plan.js`, `SwapExerciseModal.jsx`, `ExerciseItem.jsx`, `DayPage.jsx`, `HistoryPage.jsx`)
+
+- **Causa raíz del bug crítico de pesos reiniciados / cruzados**:
+  - Al separar el catálogo por implemento específico (ej. "Press inclinado con mancuernas" vs "Press inclinado en máquina"), el diccionario de renombres `EXERCISE_RENAMES` mapeaba cada nombre viejo de Supabase (ej. "Press inclinado") a **un solo** nombre nuevo (mancuernas).
+  - Si el usuario cambiaba o elegía la versión en máquina, la consulta a Supabase buscaba el ID nuevo que carecía de historial y no tenía alias mapeado, mostrando `0` o el plan base estático a pesar de que el historial existía en la base de datos.
+  - Peor aún: "Prensa de piernas" tenía asignado erróneamente como alias `Sentadilla goblet con mancuerna`. En consecuencia, la goblet heredaba el peso pesado de la prensa, y al cambiar a "Prensa de piernas en máquina", la prensa empezaba en cero mientras la goblet mostraba el peso ajeno.
+- **Solución técnica implementada**:
+  - **Multi-alias 1 a N (`EXERCISE_RENAMES` en `src/data/plan.js`)**: ahora todas las variantes nuevas de un ejercicio (mancuernas, máquina, barra, polea) declaran en su lista de alias el nombre genérico histórico del que provienen (ej. tanto `Press inclinado con mancuernas` como `Press inclinado en máquina` listan `['Press inclinado']`).
+  - **Desacople estricto de Sentadilla goblet**: se retiró `Sentadilla goblet con mancuerna` de los alias de `Prensa de piernas`. La goblet inicia sin peso previo (movimiento libre diferente) y `Prensa de piernas en máquina` hereda fielmente los registros de `Prensa de piernas`.
+  - **Resolución bidireccional y mezcla cronológica en `planSync.js` (`applyHistoryAliases`)**:
+    - `applyHistoryAliases` soporta ahora un alias único o un array de alias `[idViejo1, idViejo2, ...]`.
+    - Al combinar historiales recientes de múltiples alias antiguos, se ordenan cronológicamente (`created_at`) de más reciente a más antiguo y se recortan al límite (`perExercise=4`). Para el último peso, se toma el más reciente de los alias.
+    - `ensureDayRows` en `App.jsx` construye un mapeo inverso `newIdsByOldName`: si un usuario tiene un ID viejo en Supabase, alimenta como alias a todas las variantes nuevas activas en su día.
+  - **Consulta de último peso global por nombre (`fetchLastWeightsByName` + `lastWeightForName`)**:
+    - Al abrir el modo de edición de rutina, `App.jsx` ejecuta `fetchLastWeightsByName(supabase, userId)` que recupera la última marca registrada para cada nombre de ejercicio en el historial del usuario.
+    - `lastWeightForName(name, lastByName)` resuelve si el ejercicio ya tiene registros propios o si hereda el más reciente de sus alias en `EXERCISE_RENAMES`.
+- **UX intuitiva de edición y cambio de ejercicio**:
+  - **Eliminación de desbordes visuales**: anteriormente el botón "Cambiar" se renderizaba fuera de la card de ejercicio (`ExerciseItem.jsx`), saliéndose del contenedor en móviles y desalineando el layout. Ahora vive dentro de `.exercise-foot` como botón integrado `.set-btn.swap-btn` (icono svg de intercambio + texto `Cambiar ejercicio`).
+  - **Chip 'Personalizado'**: los ejercicios modificados muestran el chip `.foot-chip.swap-chip` (verde) dentro de la tarjeta.
+  - **Modal rediseñado (`SwapExerciseModal.jsx`)**:
+    - Cabecera con ejercicio actual, tags y último peso registrado.
+    - Aclaración explícita: "Tu peso se guarda por ejercicio. Cambiar no borra nada: si eliges uno que ya hiciste recuperas su último peso".
+    - Sección destacada **`Ya los hiciste · recuperas tu peso`** con badge verde `Ya lo hiciste · X lb × Y reps` para dar certeza inmediata al usuario.
+    - Indicador transparente `Nuevo · sin peso previo` en las opciones nunca realizadas.
+    - Aviso preventivo si el usuario ya marcó series de ese ejercicio en la sesión de hoy (`todaySeries > 0`).
+    - Alerta informativa previa antes del botón de confirmación indicando exactamente con qué peso se empezará.
+    - Notificación toast en `Snackbar` al guardar (`{newName} · tu último peso: ...` o aviso de ejercicio nuevo).
+- **Unificación de series (eliminación de '1 x al fallo')**:
+  - Se sustituyeron todas las ocurrencias de `1 x al fallo` en `workoutDays` (Aperturas con mancuernas, Remo a una mano con mancuerna, Fondos en máquina) por `2 x 10-12`. Esto elimina la contradicción visual donde el texto sugería 1 serie pero el motor de la app permitía y requería 2 marcas de fuerza.
+- **Alineación de botones 'Editar' en `HistoryPage.jsx`**:
+  - Se corrigió el desborde en las filas del historial: el contenedor de la serie usa `flex items-center justify-between gap-3` con `min-w-0 flex-1 break-words` en el texto y `self-center shrink-0` en el botón `Editar`, evitando que títulos largos empujen el botón fuera de la tarjeta.
 
 ## 6. Cómo extender (pistas rápidas)
 

@@ -102,9 +102,9 @@ export default function HistoryPage({
 																	</div>
 																</div>
 															) : (
-																<div className="flex items-center justify-between gap-2">
-																	<p className="text-sm text-zinc-300">{row.exercises?.name ?? 'Ejercicio'} · S{row.set_number} — <strong className="text-white">{displayWeight(row.weight_kg, weightUnit)} {weightUnit} × {row.reps}</strong></p>
-																	<button type="button" onClick={() => startEditSet(row)} className="shrink-0 rounded-lg border border-white/10 px-2 py-1 text-[11px] font-bold uppercase tracking-widest text-zinc-400 transition hover:border-white/25 hover:text-white">
+																<div className="flex items-center justify-between gap-3">
+																	<p className="min-w-0 flex-1 break-words text-sm leading-snug text-zinc-300">{row.exercises?.name ?? 'Ejercicio'} · S{row.set_number} — <strong className="whitespace-nowrap text-white">{displayWeight(row.weight_kg, weightUnit)} {weightUnit} × {row.reps}</strong></p>
+																	<button type="button" onClick={() => startEditSet(row)} className="inline-flex shrink-0 items-center justify-center self-center rounded-lg border border-white/10 px-2.5 py-1.5 text-[11px] font-bold uppercase leading-none tracking-wider text-zinc-400 transition hover:border-white/25 hover:text-white">
 																		Editar
 																	</button>
 																</div>

@@ -32,8 +32,8 @@ export const workoutDays = [
 			['Remo inclinado con mancuernas', '2 x 8-10', 'Tempo 3-1-1'],
 			['Press plano con mancuernas', '2 x 8', 'Tempo 3-1-1'],
 			['Jalón al pecho en máquina', '2 x 8-10', 'Tempo 3-1-1'],
-			['Aperturas con mancuernas', '1 x al fallo', 'Tempo 3-1-1'],
-			['Remo a una mano con mancuerna', '1 x al fallo', 'Por lado'],
+			['Aperturas con mancuernas', '2 x 10-12', 'Tempo 3-1-1'],
+			['Remo a una mano con mancuerna', '2 x 10-12', 'Por lado'],
 		],
 	},
 	{
@@ -139,7 +139,7 @@ export const workoutDays = [
 			['Elevaciones laterales con mancuernas', '2 x 12', 'Tempo 3-1-1'],
 			['Skull crusher con mancuernas', '2 x 8-10', 'Codos fijos'],
 			['Tríceps en polea alta', '2 x 10', 'Aprieta abajo'],
-			['Fondos en máquina', '1 x al fallo', 'Tempo 3-1-1'],
+			['Fondos en máquina', '2 x 10-12', 'Tempo 3-1-1'],
 		],
 	},
 	{
@@ -151,7 +151,7 @@ export const workoutDays = [
 			['Remo en T en máquina', '2 x 8-10', 'Tempo 3-1-1'],
 			['Jalón al pecho en máquina', '2 x 8-10', 'Tempo 3-1-1'],
 			['Remo sentado en máquina', '2 x 10', 'Tempo 3-1-1'],
-			['Remo a una mano con mancuerna', '1 x al fallo', 'Por lado'],
+			['Remo a una mano con mancuerna', '2 x 10-12', 'Por lado'],
 			['Curl predicador en máquina', '2 x 10', 'Tempo 3-1-1'],
 			['Curl martillo con mancuernas', '2 x 10', 'Agarre neutro'],
 		],
@@ -558,27 +558,60 @@ export const DEFAULT_WARMUP_MIN = 7 // plan: 5-10 min
 // recientes) se hereda del nombre anterior para no empezar de cero ni
 // mostrar el plan estático. Sin mutar datos: solo lectura con alias.
 // Tras la separación por implemento (cada nombre = 1 movimiento + 1 equipo),
-// cada entrada nueva hereda del nombre genérico anterior con el MISMO ID base.
+// el nombre genérico viejo (p. ej. "Press inclinado") se hereda en TODAS
+// sus variantes nuevas (mancuernas y máquina): el usuario elige la que
+// realmente hacía al sustituir y recupera su peso. Solo se usa el alias
+// mientras el nombre nuevo no tenga historial propio.
+// "Prensa de piernas" se hacía en máquina: NO se hereda en la goblet.
 export const EXERCISE_RENAMES = {
 	'Press inclinado con mancuernas': ['Press inclinado'],
+	'Press inclinado en máquina': ['Press inclinado'],
 	'Remo inclinado con mancuernas': ['Remo en T'],
+	'Remo en T en máquina': ['Remo en T'],
 	'Press plano con mancuernas': ['Press plano'],
+	'Press plano en máquina': ['Press plano'],
 	'Jalón al pecho en máquina': ['Jalón a pecho'],
 	'Aperturas con mancuernas': ['Pec Fly'],
+	'Pec Fly en máquina': ['Pec Fly'],
 	'Remo a una mano con mancuerna': ['Jalón unilateral dorsal'],
-	'Sentadilla goblet con mancuerna': ['Prensa de piernas'],
+	'Jalón unilateral en máquina': ['Jalón unilateral dorsal'],
+	'Prensa de piernas en máquina': ['Prensa de piernas'],
 	'Extensión de cuádriceps en máquina': ['Extensión de cuádriceps'],
 	'Aductores en máquina': ['Máquina de aductores'],
 	'Abductores en máquina': ['Máquina de abductores'],
 	'Pantorrilla de pie en máquina': ['Pantorrilla', 'Biserie de pantorrillas'],
+	'Pantorrilla sentado en máquina': ['Pantorrilla', 'Biserie de pantorrillas'],
 	'Press militar con mancuernas': ['Press militar'],
+	'Press militar en máquina': ['Press militar'],
 	'Elevaciones laterales con mancuernas': ['Elevaciones laterales'],
+	'Elevación lateral en máquina': ['Elevaciones laterales'],
 	'Skull crusher con mancuernas': ['Skull crushers'],
+	'Skull crusher con barra': ['Skull crushers'],
 	'Curl predicador con mancuernas': ['Curl predicador'],
+	'Curl predicador en máquina': ['Curl predicador'],
+	'Curl predicador con barra': ['Curl predicador'],
 	'Patada de tríceps con mancuerna': ['Tríceps en polea'],
+	'Tríceps en polea alta': ['Tríceps en polea'],
+	'Tríceps en polea con V': ['Tríceps en polea'],
 	'Curl martillo con mancuernas': ['Curl martillo'],
+	'Curl martillo en máquina': ['Curl martillo'],
 	'Curl de isquios sentado en máquina': ['Curl de isquiosurales sentado'],
 	'Patada de glúteo en máquina': ['Patada de glúteo'],
+	'Patada de glúteo en polea': ['Patada de glúteo'],
+}
+
+// Último peso conocido para un NOMBRE del catálogo: el suyo propio o, si
+// aún no tiene, el del nombre viejo más reciente del que hereda.
+// lastByName = { [nombre]: { weight_kg, reps, created_at } }.
+export function lastWeightForName(name, lastByName) {
+	if (!name || !lastByName) return null
+	if (lastByName[name]) return { ...lastByName[name], inherited: false }
+	let best = null
+	for (const old of EXERCISE_RENAMES[name] ?? []) {
+		const row = lastByName[old]
+		if (row && (!best || String(row.created_at ?? '') > String(best.created_at ?? ''))) best = row
+	}
+	return best ? { ...best, inherited: true } : null
 }
 
 // Peso de ejemplo realista por ejercicio (lb): solo orienta el placeholder

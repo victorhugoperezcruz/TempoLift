@@ -28,7 +28,7 @@ export default function DayPage({
 	weightMod, cardioMod, warmupMod, snack, closeSnack, onboarding,
 	customs, customBlocked, onAddCustom, onLogCustom, onUnmarkCustom, onRemoveCustom, removeArmedCustomId,
 	customCreateMod, customLogMod,
-	editingRoutine, setEditingRoutine, onSwapExercise, onResetRoutine, swappedIdxs,
+	editingRoutine, setEditingRoutine, onSwapExercise, onResetRoutine, swappedIdxs, baseExercises, lastByName,
 }) {
 	// Resumen de fuerza para la cabecera del acordeón (visible colapsado).
 	const strengthDone = Object.values(seriesMap ?? {}).filter((v) => v === 2).length
@@ -157,13 +157,20 @@ export default function DayPage({
 						<strong className="text-red-500">{globalRules.tempo} · {globalRules.rest}</strong>
 					</div>
 					{editingRoutine && (
-						<div className="mb-3 rounded-xl border border-white/10 px-4 py-3 text-xs leading-relaxed text-zinc-400">
-							Toca <strong className="text-white">Cambiar</strong> en un ejercicio para sustituirlo por otro del catálogo (primero los del mismo músculo). Se guarda en tu rutina y la próxima vez ya aparece así.
-							{hasOverrides && (
-								<button type="button" onClick={() => onResetRoutine(selectedWorkout.id)} className="ml-2 font-bold uppercase tracking-widest text-red-400 hover:text-red-300">
-									Restablecer rutina
+						<div className="mb-3 rounded-xl border border-red-500/25 bg-red-500/5 px-4 py-3 text-xs leading-relaxed text-zinc-300">
+							<p className="font-bold uppercase tracking-widest text-red-400">Modo edición</p>
+							<p className="mt-1">Toca <strong className="text-white">Cambiar ejercicio</strong> en la tarjeta que quieras sustituir. El cambio queda guardado en tu rutina.</p>
+							<p className="mt-1 text-zinc-400">Tu peso va ligado a cada ejercicio, no al lugar en la rutina: si vuelves a uno que ya hiciste, recuperas tu último peso. Los marcados como <strong className="text-green-400">Ya lo hiciste</strong> en la lista tienen historial.</p>
+							<div className="mt-2 flex flex-wrap items-center gap-2">
+								<button type="button" onClick={() => setEditingRoutine(false)} className="rounded-lg bg-red-500 px-3 py-1.5 text-[11px] font-bold uppercase tracking-widest text-white">
+									Listo
 								</button>
-							)}
+								{hasOverrides && (
+									<button type="button" onClick={() => onResetRoutine(selectedWorkout.id)} className="rounded-lg border border-white/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-widest text-zinc-300 transition hover:border-red-500/60 hover:text-white">
+										Restablecer rutina original
+									</button>
+								)}
+							</div>
 						</div>
 					)}
 					<div className={`exercise-list ${isResting ? 'opacity-80' : ''}`}>
@@ -194,20 +201,10 @@ export default function DayPage({
 									expanded={expandedKey === key}
 									onExpand={toggleExpand}
 									bundle={getExerciseBundle(name)}
+									editing={editingRoutine}
+									swapped={isSwapped}
+									onSwap={setSwapIdx}
 								/>
-								{editingRoutine && (
-									<div className="mb-2 flex items-center gap-2 px-1">
-										{isSwapped && <span className="rounded-lg border border-green-500/40 bg-green-500/10 px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-green-300">Tuyo</span>}
-										<button
-											type="button"
-											onClick={() => setSwapIdx(index)}
-											className="rounded-lg border border-white/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-widest text-zinc-300 transition hover:border-red-500/60 hover:text-white"
-											aria-label={`Sustituir ${name}`}
-										>
-											Cambiar
-										</button>
-									</div>
-								)}
 								</div>
 							)
 						})}
@@ -351,6 +348,10 @@ export default function DayPage({
 					currentName={swapEntry[0]}
 					reps={swapEntry[1]}
 					note={swapEntry[2]}
+					originalName={baseExercises?.[swapIdx]?.[0] ?? null}
+					lastByName={lastByName}
+					weightUnit={weightUnit}
+					todaySeries={seriesMap?.[swapIdx] ?? 0}
 					onConfirm={(newName) => { onSwapExercise(selectedWorkout.id, swapIdx, newName); setSwapIdx(null) }}
 					onClose={() => setSwapIdx(null)}
 				/>
